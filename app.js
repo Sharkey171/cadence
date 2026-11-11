@@ -265,6 +265,23 @@ async function makeThumb(pic) {
 // items: [{ file }] (copied into the app) or [{ handle, folderId }] (linked, read in place)
 // Imports run several files at a time, keep the screen awake, and can be interrupted at any
 // point: every song is saved as soon as it is read, and a linked folder carries on where it stopped.
+// Tags and covers sit at the start of almost every music file, so read just that part: reading
+// whole files is slow on phone storage. Files whose tags are elsewhere fall back to a full read.
+async function readTags(mm, file) {
+  const opts = { skipPostHeaders: true, duration: false };
+  const HEAD = 4 * 1024 * 1024;
+  if (file.size <= HEAD || !mm.parseBuffer) return mm.parseBlob(file, opts);
+  let buf = new Uint8Array(await file.slice(0, HEAD).arrayBuffer());
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {   // "ID3": a big cover can make the tag longer than that
+    const size = ((buf[6] & 127) << 21) | ((buf[7] & 127) << 14) | ((buf[8] & 127) << 7) | (buf[9] & 127);
+    if (size + 10 + 65536 > HEAD && size < 40e6) buf = new Uint8Array(await file.slice(0, Math.min(file.size, size + 10 + 65536)).arrayBuffer());
+  }
+  try {
+    const meta = await mm.parseBuffer(buf, { mimeType: file.type || undefined, size: file.size, path: file.name }, opts);
+    if (meta.common?.title || meta.common?.artist || meta.format?.container) return meta;
+  } catch { /* tags not in the first part (some M4A files): read it all */ }
+  return mm.parseBlob(file, opts);
+}
 // No single file may hold up an import: some phone storage never answers for certain files.
 const IMPORT_WAIT = { file: 20000, tags: 15000, art: 8000, ...(window.CADENCE_TEST_WAIT || {}) };
 const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), ms))]);
@@ -282,6 +299,8 @@ async function importItems(items) {
   const legacy = new Map();   // songs linked before paths were recorded
   for (const t of all) if (t.folderId && !t.path) { const k = `${t.folderId}|${t.fileName}`; (legacy.get(k) || legacy.set(k, []).get(k)).push(t); }
   const todo = items.filter(it => !(it.path && knownPath.has(`${it.folderId}|${it.path}`)));
+  const legacyNames = new Map();   // how many files in the folder carry each name
+  for (const it of todo) if (it.path && it.handle) { const k = `${it.folderId}|${it.handle.name}`; legacyNames.set(k, (legacyNames.get(k) || 0) + 1); }
   const total = todo.length, artBusy = new Set();
   let added = 0, skipped = items.length - todo.length, failed = 0, done = 0, stop = false, full = false, lastDraw = 0, lastName = 0;
   const unreadable = [];
@@ -295,6 +314,10 @@ async function importItems(items) {
 
   const one = async it => {
     const label = it.path || it.file?.name || it.handle?.name || '';
+    if (it.path && it.handle) {
+      const olds = legacy.get(`${it.folderId}|${it.handle.name}`)?.filter(t => !t.path);
+      if (olds?.length === 1 && (legacyNames.get(`${it.folderId}|${it.handle.name}`) || 0) === 1) { olds[0].path = it.path; await idb.put('tracks', olds[0]); skipped++; return; }
+    }
     if (Date.now() - lastName > 400) { lastName = Date.now(); const el = $('#imp-file'); if (el) el.textContent = 'Reading ' + label; }
     try {
       let file;
@@ -310,7 +333,7 @@ async function importItems(items) {
       seen.add(sig);
       let c = {}, f = {};
       // Tags that take too long to read are skipped; the song is still added, named from its file name.
-      if (mm) { try { const meta = await within(mm.parseBlob(file, { skipPostHeaders: true }), IMPORT_WAIT.tags); c = meta.common || {}; f = meta.format || {}; } catch (e) { if (e?.name === 'TimeoutError') console.warn('tags timed out', label); } }
+      if (mm) { try { const meta = await within(readTags(mm, file), IMPORT_WAIT.tags); c = meta.common || {}; f = meta.format || {}; } catch (e) { if (e?.name === 'TimeoutError') console.warn('tags timed out', label); } }
       const fb = fallbackTags(file.name);
       const id = uid();
       const artist = c.artist || fb.artist || '';

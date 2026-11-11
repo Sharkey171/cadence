@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 <div id="app">
@@ -26,6 +26,7 @@
       <a href="#/online/podcasts" data-nav="online-podcasts" aria-label="Free podcasts to stream or download" data-ic="mic">Podcasts</a>
       <a href="#/online/radio" data-nav="online-radio" aria-label="Live radio stations from around the world" data-ic="radio">Radio</a>
       <a href="#/online/music" data-nav="online-music" aria-label="Free music and live concerts from the Internet Archive" data-ic="disc">Free music</a>
+      <a href="#/online/youtube" data-nav="online-youtube" aria-label="Play YouTube links, search and your YouTube playlists" data-ic="yt">YouTube</a>
     </nav>
     <div class="side-head"><a href="#/playlists" aria-label="All playlists, automatic and smart playlists">Playlists</a>
       <button class="icon-btn" data-act="new-playlist" data-ic="plus" aria-label="New playlist"></button>
@@ -113,6 +114,11 @@
   <div class="np-foot"><a class="btn" href="#/queue" data-act="close-np" data-ic="queue">Queue</a><button class="btn" data-act="car-on" data-ic="car" aria-label="Big buttons for driving">Car mode</button></div>
 </section>
 
+<aside id="yt" hidden>
+  <div class="yt-bar"><span id="yt-title"></span><button class="icon-btn" data-act="yt-close" data-ic="x" aria-label="Close the YouTube player"></button></div>
+  <div class="yt-box"><div id="yt-frame"></div></div>
+</aside>
+
 <section id="car" hidden>
   <button class="btn" data-act="car-exit">Exit car mode</button>
   <div class="car-meta"><div id="car-title"></div><div id="car-artist"></div></div>
@@ -192,6 +198,6 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=11"></script>
+<script type="module" src="app.js?v=12"></script>
 </body>
 </html>

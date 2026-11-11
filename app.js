@@ -56,6 +56,7 @@ const ICONS = {
   spark: stroke('<path d="M12 3l2.200 5.800L20 11l-5.800 2.200L12 19l-2.200-5.800L4 11l5.800-2.200z"/>'),
   car: stroke('<path d="M4 16v-3l2-5.500A2 2 0 0 1 7.900 6h8.200a2 2 0 0 1 1.900 1.500L20 13v3M4 16h16M4 16v2.500M20 16v2.500M3.500 12.500h17"/><circle cx="7.500" cy="14.500" r="1"/><circle cx="16.500" cy="14.500" r="1"/>'),
   chart: stroke('<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>'),
+  yt: stroke('<rect x="2.500" y="5" width="19" height="14" rx="4"/><path d="M10 9.500v5l4.500-2.500z" fill="currentColor"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -99,7 +100,7 @@ const S = {
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
-  radCC: null, radTag: '', volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
+  radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
@@ -569,6 +570,7 @@ onAudio('ended', () => {
 });
 let countedLoad = 0;
 onAudio('play', () => {
+  try { ytPlayer?.pauseVideo?.(); } catch {}
   const t = current();
   if (S.loadedId && t && !t.url && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
     if (onlineOK() && !coverJob && !S.artUrls.has(t.artId) && !coverTried.has(t.artId)) findCoverOnline(t).catch(e => console.warn('cover lookup', e));
@@ -1053,7 +1055,7 @@ function reg(item) { S.remote.set(item.id, item); const u = safeUrl(item.art); i
 const CC = (() => { for (const l of navigator.languages || [navigator.language || '']) { const m = /-([A-Za-z]{2})\b/.exec(l); if (m) return m[1].toUpperCase(); } return 'US'; })();
 const offlineNote = what => `<div class="empty">${navigator.onLine ? `Couldn't reach the ${what} directory. Try again in a moment.` : `You're offline. Connect to the internet to browse ${what}.`}</div>`;
 const searchForm = (kind, value, placeholder) => `<form class="inline-search" data-form="${kind}"><label class="searchbox">${ic('search')}<input name="q" type="search" placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" aria-label="${placeholder}"></label><button class="btn">Search</button></form>`;
-const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a><a class="chip ${tab === 'music' ? 'active' : ''}" href="#/online/music">Free music</a></div>`;
+const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a><a class="chip ${tab === 'music' ? 'active' : ''}" href="#/online/music">Free music</a><a class="chip ${tab === 'youtube' ? 'active' : ''}" href="#/online/youtube">YouTube</a></div>`;
 
 // --- podcasts (Apple's public podcast directory; shows are streamed from their own hosts) ---
 const podFrom = r => ({ id: String(r.collectionId), name: r.collectionName, author: r.artistName, art: r.artworkUrl600 || r.artworkUrl100 });
@@ -1343,6 +1345,157 @@ async function archiveView() {
   if (location.hash === here && $('#ia-list')) $('#ia-list').innerHTML = html;
 }
 
+// --- YouTube, through YouTube's official embedded player (videos stay on YouTube, with its adverts) ---
+let ytPlayer = null, ytPlayerReady = false, ytPending = null, ytReady = null, ytToken = '', ytResults = null, ytHead = '';
+const loadScript = src => new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('blocked')); document.head.append(el); });
+const ytApiReady = () => ytReady ||= new Promise((res, rej) => {
+  if (window.YT?.Player) return res();
+  window.onYouTubeIframeAPIReady = res;
+  loadScript('https://www.youtube.com/iframe_api').catch(e => { ytReady = null; rej(e); });
+});
+function parseYT(text) {
+  try {
+    const u = new URL(text.trim());
+    if (!/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(u.hostname)) return null;
+    const list = u.searchParams.get('list');
+    let v = u.searchParams.get('v');
+    if (/youtu\.be$/i.test(u.hostname)) v = u.pathname.slice(1);
+    const m = /^\/(shorts|embed|live)\/([\w-]{11})/.exec(u.pathname); if (m) v = m[2];
+    if (v && /^[\w-]{11}$/.test(v)) return { v, list: /^[\w-]+$/.test(list || '') ? list : null };
+    if (list && /^[\w-]+$/.test(list)) return { list };
+  } catch {}
+  return null;
+}
+const unEntity = text => { const el = document.createElement('textarea'); el.innerHTML = String(text || ''); return el.value; };
+async function ytApi(path, params, withAccount) {
+  const u = new URL('https://www.googleapis.com/youtube/v3/' + path);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const headers = {};
+  if (withAccount) headers.Authorization = 'Bearer ' + ytToken; else u.searchParams.set('key', S.yt.key);
+  const r = await fetch(u, { headers }), d = await r.json().catch(() => ({}));
+  if (r.ok) return d;
+  const why = `${d.error?.errors?.[0]?.reason || ''} ${d.error?.message || ''}`;
+  if (r.status === 401) ytToken = '';
+  throw new Error(/quota/i.test(why) ? "Today's free YouTube allowance is used up. It resets overnight." : r.status === 401 ? 'Your YouTube connection expired. Connect again.'
+    : /key|credential/i.test(why) ? "YouTube didn't accept that key. Check it in Settings." : 'YouTube returned an error. Try again later.');
+}
+const ytSavedHas = id => S.ytSaved.some(x => x.id === id);
+function ytList(items) {
+  const el = document.createElement('div'); el.className = 'ytlist'; el._items = items;
+  el.innerHTML = items.map((v, i) => `<div class="row yt-row" data-act="yt-play" data-i="${i}" data-yt="${esc(v.id)}">
+    <div class="row-art"><div class="art" style="${safeUrl(v.thumb) ? `background-image:url('${safeUrl(v.thumb)}')` : ''}">${safeUrl(v.thumb) ? '' : ic('yt')}</div></div>
+    <div class="row-main"><div class="row-title">${esc(v.title)}</div><div class="row-sub">${esc(v.channel || 'YouTube')}</div></div>
+    <div class="row-album"></div>
+    <button class="icon-btn like ${ytSavedHas(v.id) ? 'on' : ''}" data-act="yt-save" aria-label="${ytSavedHas(v.id) ? 'Remove from saved' : 'Save for later'}">${ic('heart')}</button>
+    <div class="row-dur"></div><span></span></div>`).join('');
+  return el;
+}
+function ytMark() { const cur = S.ytList[S.ytIdx]?.id, open = !$('#yt').hidden; $$('.yt-row').forEach(r => r.classList.toggle('playing', open && !!cur && r.dataset.yt === cur)); }
+async function ytStart(items, i) {
+  if (!navigator.onLine) return toast('YouTube needs an internet connection');
+  try { await ytApiReady(); } catch { return toast("Couldn't load the YouTube player"); }
+  S.ytList = items; S.ytIdx = i;
+  const it = items[i]; if (!it) return;
+  if (S.loadedId && !audio.paused) pauseNow();
+  $('#yt').hidden = false; $('#yt-title').textContent = it.title || 'YouTube';
+  if (!ytPlayer) {
+    ytPlayer = new YT.Player('yt-frame', {
+      host: 'https://www.youtube-nocookie.com', width: '100%', height: '100%', videoId: it.list ? undefined : it.id,
+      playerVars: it.list ? { listType: 'playlist', list: it.list, autoplay: 1, playsinline: 1 } : { autoplay: 1, playsinline: 1, rel: 0 },
+      events: { onReady: () => { ytPlayerReady = true; if (ytPending) { const p = ytPending; ytPending = null; ytLoad(p); } }, onStateChange: ytState, onError: () => { toast("That video can't be played outside YouTube"); ytNext(); } },
+    });
+  } else if (ytPlayerReady) ytLoad(it); else ytPending = it;
+  ytMark();
+}
+function ytLoad(it) { if (it.list) ytPlayer.loadPlaylist({ list: it.list }); else ytPlayer.loadVideoById(it.id); }
+function ytNext() { if (S.ytIdx < S.ytList.length - 1 && !S.ytList[S.ytIdx]?.list) ytStart(S.ytList, S.ytIdx + 1); }
+function ytState(e) {
+  if (e.data === 1) {
+    if (S.loadedId && !audio.paused) pauseNow();
+    const d = ytPlayer.getVideoData?.(), it = S.ytList[S.ytIdx];
+    if (d?.title) {
+      $('#yt-title').textContent = d.title;
+      if (it && !it.list && it.id === d.video_id && it.title !== d.title) {   // a pasted link has no title until it plays
+        it.title = d.title; it.channel = d.author || it.channel;
+        if (ytSavedHas(it.id)) idb.put('kv', S.ytSaved, 'ytSaved').catch(() => {});
+        $$('.yt-row').filter(r => r.dataset.yt === it.id).forEach(r => { $('.row-title', r).textContent = it.title; $('.row-sub', r).textContent = it.channel || 'YouTube'; });
+      }
+    }
+  } else if (e.data === 0) ytNext();
+}
+function ytClose() { try { ytPlayer?.stopVideo?.(); } catch {} $('#yt').hidden = true; ytMark(); }
+async function ytSubmit(q) {
+  const link = parseYT(q);
+  if (link) {
+    S.ytQ = '';
+    if (link.v) { ytResults = [{ id: link.v, title: 'YouTube video', channel: '', thumb: `https://i.ytimg.com/vi/${link.v}/mqdefault.jpg` }]; ytHead = 'From your link'; rerender(); return ytStart(ytResults, 0); }
+    rerender(); return ytStart([{ list: link.list, title: 'YouTube playlist' }], 0);
+  }
+  S.ytQ = q;
+  if (!q) { ytResults = null; return rerender(); }
+  if (!S.yt.key) return toast('To search by name, add a YouTube key in Settings. Pasting a link works without one.');
+  try {
+    const d = await ytApi('search', { part: 'snippet', type: 'video', videoCategoryId: '10', maxResults: 25, q });
+    ytResults = (d.items || []).filter(x => x.id?.videoId).map(x => ({ id: x.id.videoId, title: unEntity(x.snippet?.title), channel: unEntity(x.snippet?.channelTitle), thumb: x.snippet?.thumbnails?.medium?.url }));
+    ytHead = `Results for “${q}”`;
+  } catch (e) { toast(e.message); }
+  rerender();
+}
+async function ytConnect() {
+  try { if (!window.google?.accounts?.oauth2) await loadScript('https://accounts.google.com/gsi/client'); } catch { return toast("Couldn't load Google sign-in"); }
+  google.accounts.oauth2.initTokenClient({
+    client_id: S.yt.clientId, scope: 'https://www.googleapis.com/auth/youtube.readonly',
+    callback: r => {
+      if (!r.access_token) return toast('Google sign-in was cancelled');
+      ytToken = r.access_token; setTimeout(() => { ytToken = ''; }, ((r.expires_in || 3600) - 60) * 1000);
+      if (page() === 'online') rerender();
+    },
+    error_callback: () => toast('Google sign-in was cancelled'),
+  }).requestAccessToken();
+}
+async function ytOpenPlaylist(id, name) {
+  try {
+    const d = await ytApi('playlistItems', { part: 'snippet', playlistId: id, maxResults: 50 }, true);
+    ytResults = (d.items || []).filter(x => x.snippet?.resourceId?.videoId && x.snippet.title !== 'Deleted video' && x.snippet.title !== 'Private video')
+      .map(x => ({ id: x.snippet.resourceId.videoId, title: x.snippet.title, channel: (x.snippet.videoOwnerChannelTitle || '').replace(/ - Topic$/, ''), thumb: x.snippet.thumbnails?.medium?.url }));
+    ytHead = name; rerender(); view.scrollTop = 0;
+  } catch (e) { toast(e.message); if (!ytToken) rerender(); }
+}
+async function youtubeView() {
+  const here = location.hash;
+  setView('<h1>Online</h1>', onlineChips('youtube'), searchForm('yt', S.ytQ, S.yt.key ? 'Search YouTube, or paste a YouTube link' : 'Paste a YouTube link'),
+    S.yt.key ? '' : '<p class="muted">Paste the address of a YouTube or YouTube Music song or playlist to play it here. To search by name, add a free YouTube key in <a href="#/settings" style="color:var(--accent)">Settings</a>.</p>',
+    ytResults ? `<h2>${esc(ytHead)}</h2>` : '', ytResults ? (ytResults.length ? ytList(ytResults) : '<div class="empty">Nothing found.</div>') : null,
+    S.yt.clientId ? '<h2>My YouTube account</h2>' + (ytToken ? '<div id="yt-pl" class="grid"><p class="muted">Loading your playlists…</p></div>' : `<div class="hero-actions"><button class="btn" data-act="yt-connect">${ic('user')}Connect my account</button></div>`) : '',
+    S.ytSaved.length ? '<h2>Saved</h2>' : '', S.ytSaved.length ? ytList(S.ytSaved) : null,
+    "<p class=\"muted\" style=\"font-size:13px;margin-top:24px\">This plays through YouTube's own player, with YouTube's adverts. It needs an internet connection, and stops when the screen locks or you switch apps.</p>");
+  ytMark();
+  if (ytToken && S.yt.clientId) try {
+    const d = await ytApi('playlists', { part: 'snippet,contentDetails', mine: 'true', maxResults: 50 }, true);
+    const card = (id, name, sub, thumb) => `<button class="card" style="text-align:left" data-act="yt-open-pl" data-id="${esc(id)}" data-name="${esc(name)}"><div class="art" style="${safeUrl(thumb) ? `background-image:url('${safeUrl(thumb)}')` : 'background:linear-gradient(135deg,#c4302b,#5c1512)'}">${safeUrl(thumb) ? '' : ic('heart')}</div><div class="card-title">${esc(name)}</div><div class="card-sub">${esc(sub)}</div></button>`;
+    const html = card('LL', 'Liked videos', 'Includes songs liked in YouTube Music', '') + (d.items || []).map(x => card(x.id, x.snippet?.title || 'Playlist', `${x.contentDetails?.itemCount ?? ''} videos`, x.snippet?.thumbnails?.medium?.url)).join('');
+    if (location.hash === here && $('#yt-pl')) $('#yt-pl').innerHTML = html;
+  } catch (e) { if (location.hash === here && $('#yt-pl')) $('#yt-pl').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+const YT_HELP = `Pasting YouTube links needs no setup. These two optional items come from Google, are free, and stay on this device.
+
+1. SEARCH BY NAME — a YouTube API key
+ • Go to console.cloud.google.com and sign in with your Google account.
+ • Create a project (any name, for example "Cadence").
+ • Open "APIs & Services" → "Library", find "YouTube Data API v3" and press Enable.
+ • Open "APIs & Services" → "Credentials" → "Create credentials" → "API key".
+ • Copy the key into the first box here and press Save.
+ The free allowance is about 100 searches a day.
+
+2. YOUR OWN PLAYLISTS AND LIKES — a Google client ID
+ • In the same project open "OAuth consent screen" (it may be called "Google Auth Platform"). Choose External, fill in the app name and your email, and add your own Google address under "Test users".
+ • Open "Credentials" → "Create credentials" → "OAuth client ID" → type "Web application".
+ • Under "Authorised JavaScript origins" add:  ${location.origin}
+ • Copy the client ID (it ends in .apps.googleusercontent.com) into the second box and press Save.
+ • On the YouTube page press "Connect my account". Google will warn that the app is unverified; that is expected for a personal project — choose Continue.
+
+Google renames these screens from time to time, so a label may differ slightly from the above.`;
+
 function remoteMenu(t, ev, ctx = {}) {
   const ep = t.kind === 'episode', ia = t.kind === 'ia';
   openMenu([
@@ -1367,6 +1520,7 @@ view.addEventListener('submit', e => {
   const f = e.target.closest('[data-form]'); if (!f) return;
   e.preventDefault();
   const q = f.elements.q.value.trim();
+  if (f.dataset.form === 'yt') return ytSubmit(q);
   if (f.dataset.form === 'pod') S.podQ = q; else if (f.dataset.form === 'ia') S.iaQ = q; else S.radQ = q;
   route();
 });
@@ -1666,7 +1820,7 @@ const VIEWS = {
       <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`) : ''}</div></div>`,
       viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
-  online(tab = 'podcasts') { return tab === 'radio' ? radioView() : tab === 'music' ? archiveView() : podcastsView(); },
+  online(tab = 'podcasts') { return tab === 'radio' ? radioView() : tab === 'music' ? archiveView() : tab === 'youtube' ? youtubeView() : podcastsView(); },
   async archive(id) {
     const here = location.hash;
     if (iaMem.has(id)) return drawAlbum(iaMem.get(id));
@@ -1719,6 +1873,10 @@ const VIEWS = {
         <div class="hero-actions">${['dark', 'light'].map(m => `<button class="btn ${S.theme.mode === m ? 'primary' : ''}" data-act="theme-mode" data-mode="${m}">${m === 'dark' ? 'Dark' : 'Light'}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div></div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
+      `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
+        <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
+        <label class="setfield">Google client ID (optional)<input id="yt-cid" type="text" value="${esc(S.yt.clientId)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
+        <div class="hero-actions"><button class="btn primary" data-act="yt-keys">Save</button><button class="btn" data-act="yt-help">How to get these</button></div></div>`,
       `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
@@ -1735,6 +1893,7 @@ function route() {
   (VIEWS[p] || VIEWS.home)(...args);
   const navKey = { album: 'library', artist: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
+  ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
 }
@@ -1819,6 +1978,16 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'add-feed': addFeed, 'add-station': addStation,
+  'yt-play': el => ytStart(el.closest('.ytlist')._items, +el.dataset.i),
+  'yt-save': async el => {
+    const row = el.closest('.yt-row'), v = row.closest('.ytlist')._items[+row.dataset.i];
+    S.ytSaved = ytSavedHas(v.id) ? S.ytSaved.filter(x => x.id !== v.id) : [...S.ytSaved, { ...v }];
+    await idb.put('kv', S.ytSaved, 'ytSaved'); toast(ytSavedHas(v.id) ? 'Saved' : 'Removed from saved'); rerender();
+  },
+  'yt-close': ytClose, 'yt-connect': ytConnect,
+  'yt-open-pl': el => ytOpenPlaylist(el.dataset.id, el.dataset.name),
+  'yt-keys': async () => { S.yt = { key: $('#yt-key').value.trim(), clientId: $('#yt-cid').value.trim() }; ytToken = ''; await idb.put('kv', S.yt, 'yt'); toast('Saved'); },
+  'yt-help': () => { const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false; $('h3', d).textContent = 'Setting up YouTube search and your account'; $('pre', d).textContent = YT_HELP; $('.lyr-src', d).textContent = ''; d.showModal(); $('pre', d).scrollTop = 0; },
   'rad-tag': el => { S.radTag = el.dataset.tag; S.radQ = ''; saveRadioPrefs(); rerender(); },
   'car-on': () => carMode(true), 'car-exit': () => carMode(false),
   'stat-p': el => { S.statP = +el.dataset.d; rerender(); },
@@ -1900,7 +2069,7 @@ document.addEventListener('click', e => {
   A[el.dataset.act]?.(el, e);
 });
 document.addEventListener('contextmenu', e => {
-  const row = e.target.closest('.row'); if (!row) return;
+  const row = e.target.closest('.row'); if (!row || !row.closest('.tracklist')) return;
   e.preventDefault();
   trackMenu(T(row.dataset.id), e, { ...row.closest('.tracklist')._ctx, i: +row.dataset.i });
 });
@@ -1959,6 +2128,7 @@ async function boot() {
   for (const x of Object.values(S.dl)) reg(x);
   for (const x of S.stations) reg(x);
   { const rp = await idb.get('kv', 'radioPrefs'); if (rp) { S.radCC = rp.cc ?? null; S.radTag = rp.tag || ''; } }
+  S.yt = { ...S.yt, ...(await idb.get('kv', 'yt') || {}) }; S.ytSaved = await idb.get('kv', 'ytSaved') || [];
   S.saved = await idb.get('kv', 'saved') || {};
   for (const x of Object.values(S.saved)) reg(x);
   for (const t of tracks) S.tracks.set(t.id, t);

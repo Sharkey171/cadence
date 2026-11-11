@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 <div id="app">
@@ -27,7 +27,7 @@
       <a href="#/online/radio" data-nav="online-radio" aria-label="Live radio stations from around the world" data-ic="radio">Radio</a>
       <a href="#/online/music" data-nav="online-music" aria-label="Free music and live concerts from the Internet Archive" data-ic="disc">Free music</a>
     </nav>
-    <div class="side-head"><span>Playlists</span>
+    <div class="side-head"><a href="#/playlists" aria-label="All playlists, automatic and smart playlists">Playlists</a>
       <button class="icon-btn" data-act="new-playlist" data-ic="plus" aria-label="New playlist"></button>
     </div>
     <div id="side-playlists"></div>
@@ -113,6 +113,31 @@
   <div class="np-foot"><a class="btn" href="#/queue" data-act="close-np" data-ic="queue">Queue</a></div>
 </section>
 
+<div id="selbar" hidden>
+  <b id="sel-count"></b>
+  <button class="btn" data-act="sel-all">Select all</button>
+  <button class="btn" data-act="sel-next">Play next</button>
+  <button class="btn" data-act="sel-queue">Add to queue</button>
+  <button class="btn" data-act="sel-playlist">Add to playlist</button>
+  <button class="btn danger" data-act="sel-delete">Delete</button>
+  <button class="btn primary" data-act="sel-done">Done</button>
+</div>
+
+<dialog id="smart">
+  <form method="dialog">
+    <h3>New smart playlist</h3>
+    <p>Fills itself with songs that match a rule, and keeps itself up to date.</p>
+    <label>Rule<select name="type"></select></label>
+    <label class="smart-val"><span></span><input name="value" type="text" maxlength="60"></label>
+    <label class="check"><input name="liked" type="checkbox">Only songs I've liked</label>
+    <label>Name<input name="name" type="text" required maxlength="80"></label>
+    <div class="dlg-btns">
+      <button value="ok" class="btn primary">Create</button>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="backdrop" hidden></div>
 <div id="menu" hidden></div>
 <div id="toast"></div>
@@ -145,6 +170,8 @@
     <label>Album<input name="album" type="text" maxlength="200"></label>
     <label>Album artist<input name="albumArtist" type="text" maxlength="200"></label>
     <label>Track number<input name="trackNo" type="number" min="0" max="999" inputmode="numeric"></label>
+    <label>Genre<input name="genre" type="text" maxlength="80"></label>
+    <label>Year<input name="year" type="number" min="1000" max="2100" inputmode="numeric"></label>
     <div class="dlg-btns">
       <button value="ok" class="btn primary">Save</button>
       <button value="cancel" class="btn" formnovalidate>Cancel</button>
@@ -155,6 +182,6 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=8"></script>
+<script type="module" src="app.js?v=9"></script>
 </body>
 </html>

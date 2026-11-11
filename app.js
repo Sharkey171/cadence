@@ -47,6 +47,10 @@ const ICONS = {
   user: stroke('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.600-6 8-6s8 2 8 6"/>'),
   disc: stroke('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.500"/>'),
   x: stroke('<path d="M6 6l12 12M18 6 6 18"/>'),
+  mic: stroke('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+  radio: stroke('<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 8l9-5M15 12h3M15 16h3"/><circle cx="8.500" cy="14" r="2.500"/>'),
+  globe: stroke('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.500 3 14.500 0 18M12 3c-3 3.500-3 14.500 0 18"/>'),
+  check: stroke('<path d="M5 12.500l4.500 4.500L19 7.500"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -89,10 +93,14 @@ const S = {
   artUrls: new Map(), folders: [],
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
+  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '',
 };
+// A queue entry is either a library track or a remote item (podcast episode / radio station).
+const T = id => S.tracks.get(id) || S.remote.get(id);
+const has = id => S.tracks.has(id) || S.remote.has(id);
 const audio = $('#audio');
 const view = $('#view');
-const current = () => S.tracks.get(S.queue[S.qIndex]);
+const current = () => T(S.queue[S.qIndex]);
 const playing = () => !!S.loadedId && !audio.paused;
 
 function rebuild() {
@@ -338,10 +346,12 @@ async function loadCurrent(autoplay = true, startAt = 0) {
   S.resumeAt = 0;
   syncPlayer(); saveState();
   try {
-    const file = await getFile(t.id);
+    const file = t.url ? await idb.get('files', t.id).catch(() => null) : await getFile(t.id);
     if (token !== loadToken) return;
-    if (curUrl) URL.revokeObjectURL(curUrl);
-    curUrl = URL.createObjectURL(file);
+    if (curUrl && curUrl.startsWith('blob:')) URL.revokeObjectURL(curUrl);
+    if (t.url && !file && !navigator.onLine) { S.loadedId = null; syncPlayer(); return toast('You are offline — this needs the internet'); }
+    curUrl = file ? URL.createObjectURL(file) : t.url;
+    if (!startAt && t.kind === 'episode' && S.epos[t.id] > 5) startAt = S.epos[t.id];
     S.loadedId = t.id;
     audio.src = curUrl;
     if (startAt) audio.addEventListener('loadedmetadata', () => { audio.currentTime = startAt; }, { once: true });
@@ -354,15 +364,15 @@ async function loadCurrent(autoplay = true, startAt = 0) {
   }
 }
 function playbackFailed(t) {
-  toast(`Can't play “${t.title}”`);
+  toast(t.live ? `“${t.title}” isn't broadcasting right now` : `Can't play “${t.title}”`);
   S.loadedId = null;
   if (++errStreak < 4 && S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(true); } else syncPlayer();
 }
 // State checks (audio.error / audio.ended) ignore stale events left over from the priming clip.
-audio.addEventListener('error', () => { const t = current(); if (S.loadedId && t && audio.error && audio.src === curUrl) playbackFailed(t); });
+audio.addEventListener('error', () => { const t = current(); if (S.loadedId && t && audio.error) playbackFailed(t); });
 
 function playContext(ids, i = 0) {
-  ids = ids.filter(id => S.tracks.has(id)); if (!ids.length) return;
+  ids = ids.filter(has); if (!ids.length) return;
   i = Math.max(0, Math.min(i, ids.length - 1));
   S.baseQueue = [...ids];
   if (S.shuffle) { const first = ids[i]; const rest = ids.filter((_, j) => j !== i); S.queue = [first, ...shuffleArr(rest)]; S.qIndex = 0; }
@@ -398,7 +408,7 @@ function toggleShuffle() {
 }
 function cycleRepeat() { S.repeat = { off: 'all', all: 'one', one: 'off' }[S.repeat]; syncPlayer(); saveState(); }
 function enqueue(ids, nextUp) {
-  ids = ids.filter(id => S.tracks.has(id)); if (!ids.length) return;
+  ids = ids.filter(has); if (!ids.length) return;
   if (!S.queue.length) { S.queue = [...ids]; S.qIndex = 0; S.baseQueue = [...ids]; loadCurrent(false); }
   else if (nextUp) S.queue.splice(S.qIndex + 1, 0, ...ids);
   else S.queue.push(...ids);
@@ -407,6 +417,7 @@ function enqueue(ids, nextUp) {
 
 audio.addEventListener('ended', () => {
   if (!S.loadedId || !audio.ended) return;
+  if (current()?.kind === 'episode') { delete S.epos[current().id]; idb.put('kv', S.epos, 'epos').catch(() => {}); }
   if (sleepEOT) {
     setSleep(0, true); toast('Sleep timer ended');
     if (S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(false); } else syncPlayer();
@@ -417,7 +428,7 @@ audio.addEventListener('ended', () => {
 let countedLoad = 0;
 audio.addEventListener('play', () => {
   const t = current();
-  if (S.loadedId && t && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
+  if (S.loadedId && t && !t.url && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
     if (onlineOK() && !coverJob && !S.artUrls.has(t.artId) && !coverTried.has(t.artId)) findCoverOnline(t).catch(e => console.warn('cover lookup', e));
   }
   syncPlayer();
@@ -426,7 +437,7 @@ audio.addEventListener('pause', syncPlayer);
 audio.addEventListener('loadedmetadata', () => {
   const t = current();
   if (S.loadedId && t && isFinite(audio.duration) && Math.abs((t.duration || 0) - audio.duration) > 1) {
-    t.duration = audio.duration; idb.put('tracks', t);
+    t.duration = audio.duration; if (!t.url) idb.put('tracks', t);
     $$(`.row[data-id="${t.id}"] .row-dur`).forEach(el => el.textContent = fmt(t.duration));
   }
   syncTime();
@@ -439,7 +450,7 @@ function syncTime() {
   const p = dur ? Math.min(100, cur / dur * 100) : 0;
   if (!seeking) $$('.seek').forEach(s => { s.value = p * 10; s.style.setProperty('--p', p + '%'); });
   $$('.t-cur').forEach(e => e.textContent = fmt(cur));
-  $$('.t-dur').forEach(e => e.textContent = fmt(dur));
+  $$('.t-dur').forEach(e => e.textContent = t?.live ? 'LIVE' : fmt(dur));
   $('#mini-progress i').style.width = p + '%';
   if ('mediaSession' in navigator && S.loadedId && dur && isFinite(dur)) {
     try { navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: audio.playbackRate || 1 }); } catch {}
@@ -476,7 +487,7 @@ function syncPlayer() {
   $$('.pp').forEach(b => { b.innerHTML = ic(on ? 'pause' : 'play'); b.setAttribute('aria-label', on ? 'Pause' : 'Play'); });
   $$('.b-shuffle').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-label', S.shuffle ? 'Shuffle is on' : 'Shuffle is off'); });
   $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
-  $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
+  $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.classList.toggle('nolike', t?.kind === 'episode'); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
   document.title = t && on ? `${t.title} · ${t.artist || 'Cadence'}` : 'Cadence';
   markPlaying(); syncTime();
   if ('mediaSession' in navigator) {
@@ -505,7 +516,10 @@ let saveTimer;
 function saveState() {
   lastSave = Date.now();
   clearTimeout(saveTimer);
+  const cur = current();
+  if (cur?.kind === 'episode' && S.loadedId === cur.id && audio.currentTime > 5) { S.epos[cur.id] = audio.currentTime; idb.put('kv', S.epos, 'epos').catch(() => {}); }
   saveTimer = setTimeout(() => idb.put('kv', {
+    remote: [...new Set(S.queue)].filter(id => S.remote.has(id)).map(id => S.remote.get(id)),
     queue: S.queue, qIndex: S.qIndex, baseQueue: S.baseQueue, shuffle: S.shuffle, repeat: S.repeat,
     volume: audio.volume, position: S.loadedId ? audio.currentTime : S.resumeAt, sort: S.sort,
   }, 'state').catch(() => {}), 300);
@@ -514,6 +528,7 @@ addEventListener('pagehide', saveState);
 
 /* ---------------- library mutations ---------------- */
 async function toggleLike(id) {
+  if (S.remote.get(id)?.kind === 'station') return toggleStation(S.remote.get(id));
   const t = S.tracks.get(id); if (!t) return;
   t.liked = t.liked ? 0 : Date.now(); await idb.put('tracks', t);
   $$(`.row[data-id="${id}"] .like`).forEach(b => { b.classList.toggle('on', !!t.liked); b.setAttribute('aria-label', t.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
@@ -550,6 +565,7 @@ async function deleteTracks(ids) {
 }
 
 function trackMenu(t, ev, ctx = {}) {
+  if (t.url) return remoteMenu(t, ev, ctx);
   const pl = ctx.playlistId && S.playlists.find(p => p.id === ctx.playlistId);
   openMenu([
     { label: 'Play next', icon: 'next', fn: () => enqueue([t.id], true) },
@@ -673,7 +689,7 @@ async function showLyrics(t) {
     text = (meta.common.lyrics || []).map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n').trim();
   } catch (e) { console.warn('lyrics', e); }
   if (!text) { text = await idb.get('kv', 'lyr:' + t.id).catch(() => '') || ''; if (text) from = 'Lyrics from LRCLIB, saved for offline use'; }
-  let note = 'No lyrics found for this song.';
+  let note = 'No lyrics found for this song. If the title or artist looks wrong, fix it with Edit info and the search runs again.';
   if (!text) {
     if (S.online === false) note = 'No lyrics are saved inside this file. Turn on online lookups in Settings to search for them.';
     else if (!navigator.onLine) note = 'No lyrics are saved for this song yet. Connect to the internet and open this again to look them up.';
@@ -689,10 +705,11 @@ async function editInfo(t) {
   const d = $('#edit'), f = $('form', d).elements;
   for (const k of ['title', 'artist', 'album', 'albumArtist']) f[k].value = t[k] || '';
   f.trackNo.value = t.trackNo || '';
+  $('.edit-cands', d).innerHTML = '';
   d.returnValue = 'cancel'; d.showModal(); f.title.focus();
   await new Promise(r => d.addEventListener('close', r, { once: true }));
   if (d.returnValue !== 'ok') return;
-  const oldArt = t.artId;
+  const oldArt = t.artId, before = `${t.title}|${t.artist}|${t.album}`;
   t.title = f.title.value.trim() || t.title;
   for (const k of ['artist', 'album', 'albumArtist']) t[k] = f[k].value.trim();
   t.trackNo = +f.trackNo.value || null;
@@ -706,7 +723,42 @@ async function editInfo(t) {
   rebuild();
   if (page() === 'album' && !S.albums.has(decodeURIComponent(location.hash.split('/')[2] || ''))) location.hash = `#/album/${encodeURIComponent(t.albumKey)}`;
   else rerender();
-  syncPlayer(); toast('Saved');
+  syncPlayer();
+  // New details can make a cover or lyrics findable, so look again.
+  const changed = before !== `${t.title}|${t.artist}|${t.album}`;
+  if (changed) { coverTried.delete(t.artId); idb.del('kv', 'lyr:' + t.id).catch(() => {}); }
+  if (!onlineOK() || !(changed || !S.artUrls.has(t.artId))) return toast('Saved');
+  toast('Saved — looking for the cover and lyrics…');
+  const [cover, lyrics] = await Promise.all([
+    S.artUrls.has(t.artId) ? null : findCoverOnline(t).catch(() => false),
+    findLyricsOnline(t).then(text => { if (text) idb.put('kv', text, 'lyr:' + t.id); return !!text; }).catch(() => false),
+  ]);
+  toast([cover === null ? null : cover ? 'Cover found' : 'No cover found', lyrics ? 'lyrics found' : 'no lyrics found'].filter(Boolean).join(' · '));
+}
+// "Look up online" in the edit box: suggest artist / album for the typed title.
+async function lookupInfo(el, e) {
+  e?.preventDefault();
+  const d = $('#edit'), f = $('form', d).elements, box = $('.edit-cands', d);
+  const title = cleanTitle(f.title.value);
+  if (!title) return;
+  if (!navigator.onLine) { box.textContent = 'Connect to the internet to look this up.'; return; }
+  box.textContent = 'Searching…';
+  try {
+    const q = new URLSearchParams({ track_name: title }); if (f.artist.value.trim()) q.set('artist_name', f.artist.value.trim());
+    const seen = new Set();
+    const list = (await fetchJSON('https://lrclib.net/api/search?' + q))
+      .filter(x => x.trackName && x.artistName)
+      .sort((a, b) => (norm(b.trackName) === norm(title)) - (norm(a.trackName) === norm(title)))
+      .filter(x => { const k = norm(x.artistName + '|' + (x.albumName || '')); return !seen.has(k) && seen.add(k); }).slice(0, 6);
+    if (!list.length) { box.textContent = 'Nothing found for that title. Check the spelling, or type the artist yourself.'; return; }
+    box.innerHTML = '<div class="muted">Pick the right one:</div>' + list.map((x, i) => `<button type="button" class="cand" data-i="${i}"><b>${esc(x.trackName)}</b> — ${esc(x.artistName)}${x.albumName ? ` <span class="muted">· ${esc(x.albumName)}</span>` : ''}</button>`).join('');
+    box.onclick = ev => {
+      const b = ev.target.closest('.cand'); if (!b) return;
+      const x = list[+b.dataset.i];
+      f.title.value = x.trackName; f.artist.value = x.artistName; if (x.albumName && x.albumName !== x.trackName) f.album.value = x.albumName;
+      box.innerHTML = '<div class="muted">Filled in. Press Save to keep it and fetch the cover and lyrics.</div>';
+    };
+  } catch { box.textContent = 'The lookup service could not be reached. Try again later.'; }
 }
 async function movePl(p, i, d) {
   const ids = p.trackIds.filter(id => S.tracks.has(id));
@@ -761,27 +813,183 @@ const MIXES = {
   history: { name: 'Recently played', icon: 'repeat', bg: '#2d6a4f,#1b4332', ids: () => [...S.tracks.values()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 100).map(t => t.id) },
 };
 
+/* ---------------- online: free podcasts + live radio ---------------- */
+const safeUrl = u => /^https:\/\//i.test(u || '') ? u.replace(/['"\\()\s<>]/g, c => '%' + c.charCodeAt(0).toString(16)) : '';
+function reg(item) { S.remote.set(item.id, item); const u = safeUrl(item.art); if (u) S.artUrls.set(item.artId, u); return item; }
+const CC = (() => { for (const l of navigator.languages || [navigator.language || '']) { const m = /-([A-Za-z]{2})\b/.exec(l); if (m) return m[1].toUpperCase(); } return 'US'; })();
+const offlineNote = what => `<div class="empty">${navigator.onLine ? `Couldn't reach the ${what} directory. Try again in a moment.` : `You're offline. Connect to the internet to browse ${what}.`}</div>`;
+const searchForm = (kind, value, placeholder) => `<form class="inline-search" data-form="${kind}"><label class="searchbox">${ic('search')}<input name="q" type="search" placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" aria-label="${placeholder}"></label><button class="btn">Search</button></form>`;
+const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a></div>`;
+
+// --- podcasts (Apple's public podcast directory; shows are streamed from their own hosts) ---
+const podFrom = r => ({ id: String(r.collectionId), name: r.collectionName, author: r.artistName, art: r.artworkUrl600 || r.artworkUrl100 });
+const podCard = p => `<a class="card" href="#/podcast/${encodeURIComponent(p.id)}">${safeUrl(p.art) ? `<div class="art" style="background-image:url('${safeUrl(p.art)}')"></div>` : artDiv(null, p.name, '', 'mic')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${esc(p.author || '')}</div></a>`;
+let topPods = null; const podMem = new Map(), podSearchMem = new Map();
+async function loadTopPods() {
+  if (topPods) return topPods;
+  const d = await fetchJSON(`https://itunes.apple.com/${CC.toLowerCase()}/rss/toppodcasts/limit=24/json`);
+  return topPods = (d.feed?.entry || []).map(e => ({ id: e.id?.attributes?.['im:id'], name: e['im:name']?.label, author: e['im:artist']?.label, art: e['im:image']?.at(-1)?.label })).filter(p => p.id && p.name);
+}
+async function searchPods(q) {
+  if (podSearchMem.has(q)) return podSearchMem.get(q);
+  const d = await fetchJSON('https://itunes.apple.com/search?' + new URLSearchParams({ term: q, media: 'podcast', entity: 'podcast', limit: 30 }));
+  const r = (d.results || []).filter(x => x.collectionId && x.collectionName).map(podFrom);
+  podSearchMem.set(q, r); return r;
+}
+async function loadPodcast(id) {
+  let data = podMem.get(id) || await idb.get('kv', 'pod:' + id).catch(() => null);
+  if (navigator.onLine && (!data || Date.now() - data.at > 30 * 60000)) {
+    try {
+      const d = await fetchJSON('https://itunes.apple.com/lookup?' + new URLSearchParams({ id, media: 'podcast', entity: 'podcastEpisode', limit: 200 }));
+      const head = (d.results || []).find(r => r.kind === 'podcast');
+      if (!head) throw new Error('not found');
+      const pod = podFrom(head);
+      const eps = d.results.filter(r => r.kind === 'podcast-episode' && r.episodeUrl).sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate)).map(r => ({
+        id: 'ep:' + r.trackId, kind: 'episode', podId: pod.id, title: r.trackName, artist: pod.name,
+        album: r.releaseDate ? new Date(r.releaseDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+        url: r.episodeUrl, duration: r.trackTimeMillis ? r.trackTimeMillis / 1000 : null, art: pod.art, artId: 'r:pod:' + pod.id,
+        desc: String(r.description || r.shortDescription || '').slice(0, 3000),
+      }));
+      data = { at: Date.now(), pod, eps };
+      idb.put('kv', data, 'pod:' + id).catch(() => {});
+    } catch (e) { if (!data) throw e; }
+  }
+  if (!data) throw new Error('offline');
+  for (const e of data.eps) reg(S.dl[e.id] || e);
+  podMem.set(id, data); return data;
+}
+function drawPodcast({ pod, eps }) {
+  viewIds = eps.map(e => e.id); S.curPod = pod;
+  const following = S.pods.some(p => p.id === pod.id);
+  setView(`<div class="hero">${safeUrl(pod.art) ? `<div class="art" style="background-image:url('${safeUrl(pod.art)}')"></div>` : artDiv(null, pod.name, '', 'mic')}<div class="hero-text"><div class="kind">Podcast</div><h1>${esc(pod.name)}</h1>
+    <div class="muted">${esc(pod.author || '')} · ${eps.length} episode${eps.length === 1 ? '' : 's'}</div>
+    <div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play latest</button><button class="btn" data-act="follow-pod">${ic(following ? 'check' : 'plus')}${following ? 'Following' : 'Follow'}</button></div></div></div>`,
+    eps.length ? trackList(viewIds) : '<div class="empty">No playable episodes were found for this show.</div>');
+}
+async function podcastsView() {
+  const here = location.hash, dls = Object.values(S.dl);
+  viewIds = dls.map(e => e.id);
+  setView('<h1>Online</h1>', onlineChips('podcasts'), searchForm('pod', S.podQ, 'Search free podcasts'), '<div id="pod-results"></div>',
+    S.pods.length ? `<h2>Your podcasts</h2><div class="grid">${S.pods.map(podCard).join('')}</div>` : '',
+    dls.length ? '<h2>Downloaded episodes</h2>' : '', dls.length ? trackList(viewIds) : null, '<div id="pod-top"></div>');
+  const fill = (sel, html) => { const el = $(sel); if (el && location.hash === here) el.innerHTML = html; };
+  if (S.podQ) {
+    fill('#pod-results', '<p class="muted">Searching…</p>');
+    try { const r = await searchPods(S.podQ); fill('#pod-results', r.length ? `<h2>Results for “${esc(S.podQ)}”</h2><div class="grid">${r.map(podCard).join('')}</div>` : `<div class="empty">No podcasts match “${esc(S.podQ)}”.</div>`); }
+    catch { fill('#pod-results', offlineNote('podcast')); }
+  } else {
+    try { const top = await loadTopPods(); fill('#pod-top', top.length ? `<h2>Popular right now</h2><div class="grid">${top.map(podCard).join('')}</div>` : ''); }
+    catch { fill('#pod-top', S.pods.length || dls.length ? '' : offlineNote('podcast')); }
+  }
+}
+async function downloadEp(t) {
+  if (S.dl[t.id]) return toast('Already downloaded');
+  if (!navigator.onLine) return toast('Connect to the internet to download');
+  toast('Downloading episode…');
+  try {
+    const r = await fetch(t.url); if (!r.ok) throw new Error('HTTP ' + r.status);
+    await idb.put('files', await r.blob(), t.id);
+    S.dl[t.id] = t; await idb.put('kv', S.dl, 'dl');
+    toast('Downloaded — plays offline now');
+    if (['online', 'podcast'].includes(page())) rerender();
+  } catch (e) {
+    toast(e?.name === 'QuotaExceededError' ? 'Storage is full' : "This show doesn't allow downloads into web apps. You can still stream it.");
+  }
+}
+async function removeDl(t) { await idb.del('files', t.id); delete S.dl[t.id]; await idb.put('kv', S.dl, 'dl'); toast('Download removed'); if (['online', 'podcast'].includes(page())) rerender(); }
+
+// --- radio (Radio Browser community directory) ---
+const RB = ['de1', 'de2', 'fi1', 'nl1', 'at1'].map(h => `https://${h}.api.radio-browser.info`);
+let rbBase = null; const radMem = new Map();
+async function rb(path) {
+  for (const base of rbBase ? [rbBase, ...RB.filter(b => b !== rbBase)] : RB) {
+    try { const d = await fetchJSON(base + path); rbBase = base; return d; } catch {}
+  }
+  throw new Error('radio directory unreachable');
+}
+const regionName = (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(CC) || ''; } catch { return ''; } })();
+const hlsOK = !!audio.canPlayType('application/vnd.apple.mpegurl');
+async function radioList(q) {
+  const key = q || '@' + CC; if (radMem.has(key)) return radMem.get(key);
+  const p = new URLSearchParams({ limit: 80, hidebroken: 'true', order: 'clickcount', reverse: 'true', is_https: 'true' });
+  if (q) p.set('name', q); else p.set('countrycode', CC);
+  const seen = new Set();
+  const list = (await rb('/json/stations/search?' + p)).filter(r => r.stationuuid && (!r.hls || hlsOK) && /^https:/i.test(r.url_resolved || '')).map(r => ({
+    id: 'st:' + r.stationuuid, kind: 'station', live: true, title: String(r.name || '').trim().slice(0, 120),
+    artist: [r.country, ...String(r.tags || '').split(',').slice(0, 2)].map(x => String(x).trim()).filter(Boolean).join(' · ') || 'Radio',
+    album: 'Live radio', url: r.url_resolved, art: r.favicon, artId: 'r:st:' + r.stationuuid,
+  })).filter(st => st.title && !seen.has(norm(st.title)) && seen.add(norm(st.title)));
+  if (q) {
+    // The directory matches anywhere in the name, so put real name matches first and keyword-stuffed names last.
+    const n = norm(q), words = new RegExp('(^|[^a-z0-9])' + n.replace(/[^a-z0-9 ]/g, ''));
+    const score = st => { const t = norm(st.title); return (t.startsWith(n) ? 0 : words.test(t) ? 1 : 2) + (st.title.length > 60 ? 3 : 0) + (st.artist.startsWith(regionName) ? 0 : 0.5); };
+    list.sort((a, b) => score(a) - score(b));
+  }
+  radMem.set(key, list); return list;
+}
+async function toggleStation(t) {
+  if (t.liked) { t.liked = 0; S.stations = S.stations.filter(x => x.id !== t.id); } else { t.liked = Date.now(); S.stations.push(t); }
+  await idb.put('kv', S.stations, 'stations');
+  toast(t.liked ? 'Added to favourite stations' : 'Removed from favourites');
+  syncPlayer(); if (page() === 'online' || page() === 'queue') rerender();
+}
+async function radioView() {
+  const here = location.hash, favs = S.stations.map(x => x.id);
+  setView('<h1>Online</h1>', onlineChips('radio'), searchForm('rad', S.radQ, 'Search radio stations by name'),
+    favs.length ? '<h2>Favourite stations</h2>' : '', favs.length ? trackList(favs) : null,
+    `<h2>${S.radQ ? `Stations matching “${esc(S.radQ)}”` : 'Popular in your country'}</h2>`, '<div id="rad-list"><p class="muted">Loading stations…</p></div>');
+  let node;
+  try {
+    const list = (await radioList(S.radQ)).map(st => S.remote.get(st.id)?.liked ? S.remote.get(st.id) : reg(st));
+    node = list.length ? trackList(list.map(x => x.id)) : Object.assign(document.createElement('div'), { className: 'empty', textContent: 'No stations found.' });
+  } catch { node = Object.assign(document.createElement('div'), { innerHTML: offlineNote('radio station') }); }
+  if (location.hash === here && $('#rad-list')) $('#rad-list').replaceWith(node);
+  markPlaying();
+}
+function remoteMenu(t, ev, ctx = {}) {
+  const ep = t.kind === 'episode';
+  openMenu([
+    { label: 'Play next', icon: 'next', fn: () => enqueue([t.id], true) },
+    { label: 'Add to queue', icon: 'queue', fn: () => enqueue([t.id], false) },
+    ep && !S.dl[t.id] && { label: 'Download for offline', icon: 'save', fn: () => downloadEp(t) },
+    ep && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
+    ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
+    ep && S.epos[t.id] && { label: 'Start from the beginning', icon: 'prev', fn: () => { delete S.epos[t.id]; idb.put('kv', S.epos, 'epos'); if (S.loadedId === t.id) audio.currentTime = 0; else rerender(); } },
+    ep && { label: 'Go to podcast', icon: 'mic', fn: () => { closeNP(); location.hash = `#/podcast/${encodeURIComponent(t.podId)}`; } },
+    !ep && { label: t.liked ? 'Remove from favourite stations' : 'Add to favourite stations', icon: 'heart', fn: () => toggleStation(t) },
+    ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
+    ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); rerender(); } },
+  ], ev, `${t.title} · ${t.artist}`);
+}
+view.addEventListener('submit', e => {
+  const f = e.target.closest('[data-form]'); if (!f) return;
+  e.preventDefault();
+  const q = f.elements.q.value.trim();
+  if (f.dataset.form === 'pod') S.podQ = q; else S.radQ = q;
+  route();
+});
+
 /* ---------------- views ---------------- */
 function rowHTML(t, i, ctx) {
   const lead = ctx.numbered ? `<div class="row-num">${t.trackNo || i + 1}</div>` : `<div class="row-art">${artDiv(t.artId, t.album || t.title)}</div>`;
   return `<div class="row" data-act="play-row" data-i="${i}" data-id="${t.id}">
     ${lead}
-    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.artist || 'Unknown artist')}</div></div>
-    <div class="row-album">${esc(t.album || '')}</div>
-    <button class="icon-btn like ${t.liked ? 'on' : ''}" data-act="like" aria-label="${t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
-    <div class="row-dur">${fmt(t.duration)}</div>
+    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.kind === 'episode' ? [t.album, S.dl[t.id] && 'Downloaded', S.epos[t.id] && `Resume at ${fmt(S.epos[t.id])}`].filter(Boolean).join(' · ') : t.artist || 'Unknown artist')}</div></div>
+    <div class="row-album">${esc(t.kind === 'episode' ? t.artist : t.album || '')}</div>
+    <button class="icon-btn like ${t.liked ? 'on' : ''} ${t.kind === 'episode' ? 'nolike' : ''}" data-act="like" aria-label="${t.kind === 'station' ? (t.liked ? 'Remove from favourite stations' : 'Add to favourite stations') : t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
+    <div class="row-dur">${t.live ? 'LIVE' : fmt(t.duration)}</div>
     <button class="icon-btn" data-act="row-menu" aria-label="More options for this song">${ic('dots')}</button>
   </div>`;
 }
 function trackList(ids, ctx = {}) {
-  ids = ids.filter(id => S.tracks.has(id));
+  ids = ids.filter(has);
   const el = document.createElement('div'); el.className = 'tracklist'; el._ids = ids; el._ctx = ctx;
   const sentinel = document.createElement('div'); el.append(sentinel);
   let n = 0;
   const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { root: view, rootMargin: '1200px' });
   function more() {
     const end = Math.min(ids.length, n + 200); let html = '';
-    for (; n < end; n++) html += rowHTML(S.tracks.get(ids[n]), n, ctx);
+    for (; n < end; n++) html += rowHTML(T(ids[n]), n, ctx);
     sentinel.insertAdjacentHTML('beforebegin', html);
     if (n >= ids.length) { io.disconnect(); sentinel.remove(); }
     markPlaying();
@@ -882,6 +1090,14 @@ const VIEWS = {
       <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`) : ''}</div></div>`,
       viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
+  online(tab = 'podcasts') { return tab === 'radio' ? radioView() : podcastsView(); },
+  async podcast(id) {
+    const here = location.hash;
+    if (podMem.has(id) && Date.now() - podMem.get(id).at < 30 * 60000) return drawPodcast(podMem.get(id));
+    setView('<div class="empty">Loading podcast…</div>');
+    try { const data = await loadPodcast(id); if (location.hash === here) drawPodcast(data); }
+    catch { if (location.hash === here) setView(`<div class="empty"><h1>Can't load this podcast</h1><p>${navigator.onLine ? 'The podcast directory did not answer. Try again in a moment.' : 'You are offline. Downloaded episodes are on the Podcasts page.'}</p></div>`); }
+  },
   search() {
     const q = norm(S.q.trim());
     if (!q) return setView('<h1>Search</h1><div class="empty">Find songs, albums and artists in your library.</div>');
@@ -930,7 +1146,8 @@ function route() {
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
   const navKey = { album: 'library', artist: 'library', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
-  $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
+  const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : null;
+  $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
 }
 function rerender() { const y = view.scrollTop; route(); view.scrollTop = y; }
@@ -970,7 +1187,7 @@ const A = {
     playContext(list._ids, i);
   },
   'like': el => toggleLike(el.closest('.row').dataset.id),
-  'row-menu': (el, e) => { const row = el.closest('.row'), list = row.closest('.tracklist'); trackMenu(S.tracks.get(row.dataset.id), e, { ...list._ctx, i: +row.dataset.i }); },
+  'row-menu': (el, e) => { const row = el.closest('.row'), list = row.closest('.tracklist'); trackMenu(T(row.dataset.id), e, { ...list._ctx, i: +row.dataset.i }); },
   'play-view': () => { S.shuffle = false; playContext(viewIds, 0); },
   'shuffle-view': () => shufflePlay(viewIds),
   'play-album': (el, e) => { e.preventDefault(); const al = S.albums.get(el.dataset.key); if (al) playContext(al.tracks.map(t => t.id), 0); },
@@ -997,6 +1214,13 @@ const A = {
   'open-np': openNP, 'close-np': closeNP,
   'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e, { np: true }); },
   'sleep': (el, e) => sleepMenu(e),
+  'follow-pod': async () => {
+    const pod = S.curPod; if (!pod) return;
+    const on = S.pods.some(p => p.id === pod.id);
+    S.pods = on ? S.pods.filter(p => p.id !== pod.id) : [...S.pods, pod];
+    await idb.put('kv', S.pods, 'pods'); toast(on ? 'Unfollowed' : 'Following — find it under Podcasts'); rerender();
+  },
+  'edit-lookup': lookupInfo,
   'toggle-online': async () => { S.online = S.online === false; await idb.put('kv', S.online, 'online'); rerender(); },
   'find-covers': findAllCovers,
   'export': exportBackup,
@@ -1031,7 +1255,7 @@ document.addEventListener('click', e => {
 document.addEventListener('contextmenu', e => {
   const row = e.target.closest('.row'); if (!row) return;
   e.preventDefault();
-  trackMenu(S.tracks.get(row.dataset.id), e, { ...row.closest('.tracklist')._ctx, i: +row.dataset.i });
+  trackMenu(T(row.dataset.id), e, { ...row.closest('.tracklist')._ctx, i: +row.dataset.i });
 });
 document.addEventListener('keydown', e => {
   if (e.target.matches('input:not([type=range]), textarea, select') || $('#dlg').open) return;
@@ -1077,14 +1301,21 @@ async function boot() {
     idb.all('tracks'), idb.all('playlists'), idb.keys('art'), idb.all('art'), idb.get('kv', 'state'), idb.get('kv', 'folders'),
   ]);
   S.online = await idb.get('kv', 'online');
+  S.pods = await idb.get('kv', 'pods') || [];
+  S.stations = await idb.get('kv', 'stations') || [];
+  S.dl = await idb.get('kv', 'dl') || {};
+  S.epos = await idb.get('kv', 'epos') || {};
+  for (const x of state?.remote || []) reg(x);
+  for (const x of Object.values(S.dl)) reg(x);
+  for (const x of S.stations) reg(x);
   for (const t of tracks) S.tracks.set(t.id, t);
   artKeys.forEach((k, i) => S.artUrls.set(k, URL.createObjectURL(artBlobs[i])));
   S.playlists = playlists.sort((a, b) => a.createdAt - b.createdAt);
   S.folders = folders || [];
   if (state) {
-    S.queue = (state.queue || []).filter(id => S.tracks.has(id));
+    S.queue = (state.queue || []).filter(has);
     S.qIndex = Math.max(S.queue.length ? 0 : -1, S.queue.indexOf((state.queue || [])[state.qIndex]));
-    S.baseQueue = state.baseQueue?.filter(id => S.tracks.has(id)) || null;
+    S.baseQueue = state.baseQueue?.filter(has) || null;
     S.shuffle = !!state.shuffle; S.repeat = state.repeat || 'off'; S.sort = state.sort || 'title';
     S.resumeAt = S.queue[S.qIndex] === (state.queue || [])[state.qIndex] ? state.position || 0 : 0;
     if (state.volume != null) audio.volume = state.volume;

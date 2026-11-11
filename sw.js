@@ -1,5 +1,5 @@
 // Offline app shell. Music itself lives in IndexedDB / linked folders, not here.
-const CACHE = 'cadence-shell-v4';
+const CACHE = 'cadence-shell-v5';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'vendor/music-metadata.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',

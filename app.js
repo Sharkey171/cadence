@@ -651,6 +651,7 @@ function syncPlayer() {
   document.body.classList.toggle('pod', t?.kind === 'episode');
   $('#p-title').textContent = t ? t.title : 'Nothing playing';
   $('#p-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
+  { const tip = !t ? '' : !t.url ? `See all songs by ${t.artist || 'this artist'}` : t.kind === 'episode' ? 'Go to this podcast' : t.kind === 'ia' ? 'Go to this recording' : 'Go to radio'; for (const el of [$('#p-artist'), $('#np-artist')]) el.setAttribute('aria-label', tip); }
   $('#np-title').textContent = t ? t.title : '';
   $('#np-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   $('#car-title').textContent = t ? t.title : 'Nothing playing'; $('#car-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
@@ -752,6 +753,7 @@ function trackMenu(t, ev, ctx = {}) {
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue([t.id], false) },
     { label: 'Add to playlist', icon: 'plus', fn: () => pickPlaylist([t.id]) },
     { label: t.liked ? 'Remove from liked songs' : 'Like', icon: 'heart', fn: () => toggleLike(t.id) },
+    { label: 'Download the file', icon: 'save', fn: () => exportTracks([t.id]) },
     !ctx.np && { label: 'Select', icon: 'check', fn: () => toggleSel(t.id) },
     t.album && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/album/${encodeURIComponent(t.albumKey)}`; } },
     { label: 'Go to artist', icon: 'user', fn: () => { closeNP(); location.hash = `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`; } },
@@ -1525,6 +1527,35 @@ view.addEventListener('submit', e => {
   route();
 });
 
+/* ---------------- saving songs out of the app as files ---------------- */
+const safeName = n => String(n || 'song').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 180);
+async function exportTracks(ids) {
+  const ts = [...new Set(ids)].map(id => S.tracks.get(id)).filter(Boolean);
+  if (!ts.length) return toast('Only songs in your library can be saved as files');
+  if (importing) return toast('Wait for the import to finish first');
+  let dir = null;
+  // On a computer, several songs go into a folder you pick; otherwise each one arrives as a normal download.
+  if (ts.length > 1 && window.showDirectoryPicker && isDesktop()) { try { dir = await showDirectoryPicker({ mode: 'readwrite', id: 'export' }); } catch (e) { if (e?.name === 'AbortError') return; dir = null; } }
+  if (!dir && ts.length > 12 && !await ask({ title: `Download ${ts.length} songs?`, text: 'Each song is saved to your Downloads folder as a separate file. Your browser may ask once whether to allow several downloads.', ok: 'Download' })) return;
+  let done = 0, failed = 0;
+  for (const t of ts) {
+    setBanner(`<span>Saving songs… ${done + failed + 1} / ${ts.length}</span><div class="bar"><i style="width:${(done + failed) / ts.length * 100}%"></i></div>`);
+    try {
+      const file = await getFile(t.id), name = safeName(t.fileName || `${t.artist} - ${t.title}`);
+      if (dir) { const w = await (await dir.getFileHandle(name, { create: true })).createWritable(); await w.write(file); await w.close(); }
+      else {
+        const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name;
+        document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        if (ts.length > 1) await new Promise(r => setTimeout(r, 450));
+      }
+      done++;
+    } catch (e) { console.warn('save file', e); failed++; if (e?.name === 'NotAllowedError' && t.linked) { setBanner(''); return toast('Reconnect your music folder first'); } }
+  }
+  setBanner('');
+  toast(done ? `Saved ${done} song${done === 1 ? '' : 's'} ${dir ? `to “${dir.name}”` : 'to your downloads'}${failed ? ` · ${failed} could not be saved` : ''}` : 'Those songs could not be saved');
+}
+const saveBtn = `<button class="icon-btn" data-act="export-view" aria-label="Download these songs as files to this device">${ic('save')}</button>`;
+
 /* ---------------- selecting several songs ---------------- */
 function syncSel() {
   $('#selbar').hidden = !S.sel.size; document.body.classList.toggle('selecting', !!S.sel.size);
@@ -1747,7 +1778,7 @@ const VIEWS = {
     const albums = [...S.albums.values()].filter(a => norm(a.artist) === key).sort((a, b) => (b.year || 0) - (a.year || 0));
     viewIds = [...ar.tracks].sort(SORTS.album).map(t => t.id);
     setView(`<div class="hero">${artDiv(ar.artId, ar.name, 'round', 'user')}<div class="hero-text"><div class="kind">Artist</div><h1>${esc(ar.name)}</h1>
-      <div class="muted">${total(ar.tracks)}</div>${heroActions()}</div></div>`, '<div id="bio"></div>',
+      <div class="muted">${total(ar.tracks)}</div>${heroActions(saveBtn)}</div></div>`, '<div id="bio"></div>',
       albums.length ? `<h2>Albums</h2><div class="grid">${albums.map(albumCard).join('')}</div>` : '',
       '<h2>Songs</h2>', trackList(viewIds));
     const here = location.hash;
@@ -1951,6 +1982,7 @@ const A = {
     { label: 'Play next', icon: 'next', fn: () => enqueue(viewIds, true) },
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue(viewIds, false) },
     { label: 'Add to playlist', icon: 'plus', fn: () => pickPlaylist(viewIds) },
+    viewIds.some(id => S.tracks.has(id)) && { label: 'Download the files', icon: 'save', fn: () => exportTracks(viewIds) },
   ], e),
   'playlist-menu': (el, e) => {
     const p = S.playlists.find(x => x.id === el.dataset.id); if (!p) return;
@@ -1993,6 +2025,15 @@ const A = {
   'stat-p': el => { S.statP = +el.dataset.d; rerender(); },
   'theme-mode': el => { S.theme.mode = el.dataset.mode; applyTheme(); rerender(); },
   'theme-accent': el => { S.theme.accent = el.dataset.c; applyTheme(); rerender(); },
+  'export-view': () => exportTracks(viewIds),
+  'sel-export': () => { const ids = [...S.sel]; clearSel(); exportTracks(ids); },
+  // The artist line under the playing song leads to everything by that artist.
+  'go-artist': () => {
+    const t = current(); if (!t) return;
+    closeNP(); if (!$('#car').hidden) carMode(false);
+    location.hash = !t.url ? `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`
+      : t.kind === 'episode' ? `#/podcast/${encodeURIComponent(t.podId)}` : t.kind === 'ia' ? `#/archive/${encodeURIComponent(t.iaId)}` : '#/online/radio';
+  },
   'sel-done': clearSel,
   'sel-all': () => { for (const l of $$('.tracklist')) for (const id of l._ids) S.sel.add(id); syncSel(); },
   'sel-next': () => { enqueue([...S.sel], true); clearSel(); },

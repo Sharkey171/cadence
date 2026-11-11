@@ -9,10 +9,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Cadence">
+<meta name="description" content="Cadence plays your own music files offline, with free radio, podcasts and free music built in.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 <div id="app">
@@ -53,7 +54,7 @@
     <div class="p-info">
       <div class="p-left" data-act="open-np" aria-label="Open the now playing screen">
         <div id="p-art" class="art"></div>
-        <div class="p-meta"><div id="p-title">Nothing playing</div><div id="p-artist"></div></div>
+        <div class="p-meta"><div id="p-title">Nothing playing</div><div id="p-artist" class="artist-link" data-act="go-artist"></div></div>
       </div>
       <button class="icon-btn like cur-like" data-act="like-current" data-ic="heart" aria-label="Like"></button>
     </div>
@@ -95,7 +96,7 @@
   </header>
   <div id="np-art" class="art"></div>
   <div class="np-meta">
-    <div class="np-text"><div id="np-title"></div><div id="np-artist"></div></div>
+    <div class="np-text"><div id="np-title"></div><div id="np-artist" class="artist-link" data-act="go-artist"></div></div>
     <button class="icon-btn like cur-like" data-act="like-current" data-ic="heart" aria-label="Like"></button>
   </div>
   <div class="np-seek">
@@ -135,6 +136,7 @@
   <button class="btn" data-act="sel-next">Play next</button>
   <button class="btn" data-act="sel-queue">Add to queue</button>
   <button class="btn" data-act="sel-playlist">Add to playlist</button>
+  <button class="btn" data-act="sel-export">Download</button>
   <button class="btn danger" data-act="sel-delete">Delete</button>
   <button class="btn primary" data-act="sel-done">Done</button>
 </div>
@@ -198,6 +200,6 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=12"></script>
+<script type="module" src="app.js?v=13"></script>
 </body>
 </html>

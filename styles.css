@@ -346,3 +346,12 @@ body.dragging::after { color: #fff; }
 .setfield input { display: block; width: 100%; margin-top: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 14px; user-select: text; -webkit-user-select: text; }
 #lyr pre { tab-size: 2; }
 @media (max-width: 768px) { #yt { left: 8px; right: 8px; width: auto; bottom: 138px; } }
+/* Stop a quick double tap from zooming the whole app on phones. */
+html { touch-action: manipulation; }
+/* Let the search box shrink on narrow phones so the buttons beside it stay on screen. */
+.searchbox { min-width: 0; }
+
+.artist-link { cursor: pointer; width: fit-content; max-width: 100%; }
+.artist-link:hover { text-decoration: underline; color: var(--text); }
+/* On a phone the small player bar opens Now Playing wherever it is tapped; the artist link lives on that screen. */
+@media (max-width: 768px) { #p-artist { pointer-events: none; } }

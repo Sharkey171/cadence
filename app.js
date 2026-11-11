@@ -246,6 +246,16 @@ function ask({ title, text = '', input = null, ok = 'OK', danger = false }) {
 let importing = false;
 function setBanner(html) { const b = $('#banner'); b.hidden = !html; b.innerHTML = html || ''; }
 
+// Best guess at a song's details from where it sits: ".../Artist/Album/03 Title.mp3" or "Artist - Title.mp3".
+function namesFromPath(path) {
+  const parts = path.split('/'), file = parts.pop(), fb = fallbackTags(file);
+  const folder = parts.at(-1) || '', up = parts.at(-2) || '';
+  const generic = /^(music|songs|mp3s?|audio|downloads?|various|misc|new folder|unknown.*|disc ?\d+|cd ?\d+)$/i;
+  const album = generic.test(folder) ? '' : folder.replace(/\s*[\[(](disc|cd) ?\d+[\])]\s*$/i, '').trim();
+  const artist = fb.artist || (up && !generic.test(up) && !/^(rock|pop|jazz|country|dance|classical|hip ?hop|rap|folk|irish|soul|blues|reggae|metal|indie)( ?\d+)?$/i.test(up) ? up : '');
+  const no = /^(\d{1,3})[\s.\-_]/.exec(file.replace(/^\d-(?=\d)/, ''));
+  return { title: fb.title, artist, album, trackNo: no ? +no[1] : null };
+}
 function fallbackTags(name) {
   const base = name.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
   const m = base.match(/^(?:\d{1,3}[\s.\-]+)?(.+?)\s+-\s+(.+)$/);
@@ -268,27 +278,32 @@ async function makeThumb(pic) {
 // point: every song is saved as soon as it is read, and a linked folder carries on where it stopped.
 // Tags and covers sit at the start of almost every music file, so read just that part: reading
 // whole files is slow on phone storage. Files whose tags are elsewhere fall back to a full read.
-async function readTags(mm, file) {
+async function readTags(mm, file, quick = false) {
   const opts = { skipPostHeaders: true, duration: false };
-  const HEAD = 4 * 1024 * 1024;
+  const HEAD = quick ? 512 * 1024 : 4 * 1024 * 1024;
   if (file.size <= HEAD || !mm.parseBuffer) return mm.parseBlob(file, opts);
   let buf = new Uint8Array(await file.slice(0, HEAD).arrayBuffer());
   if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {   // "ID3": a big cover can make the tag longer than that
     const size = ((buf[6] & 127) << 21) | ((buf[7] & 127) << 14) | ((buf[8] & 127) << 7) | (buf[9] & 127);
-    if (size + 10 + 65536 > HEAD && size < 40e6) buf = new Uint8Array(await file.slice(0, Math.min(file.size, size + 10 + 65536)).arrayBuffer());
+    if (size + 10 + 65536 > HEAD && size < (quick ? 3e6 : 40e6)) buf = new Uint8Array(await file.slice(0, Math.min(file.size, size + 10 + 65536)).arrayBuffer());
   }
   try {
     const meta = await mm.parseBuffer(buf, { mimeType: file.type || undefined, size: file.size, path: file.name }, opts);
     if (meta.common?.title || meta.common?.artist || meta.format?.container) return meta;
   } catch { /* tags not in the first part (some M4A files): read it all */ }
+  if (quick && file.size > 25e6) throw new Error('tags not near the start');
   return mm.parseBlob(file, opts);
 }
 // No single file may hold up an import: some phone storage never answers for certain files.
 const IMPORT_WAIT = { file: 20000, tags: 15000, art: 8000, ...(window.CADENCE_TEST_WAIT || {}) };
 const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), ms))]);
-async function importItems(items) {
+// Adds songs either from a list of picked files, or straight from a linked folder while it is
+// being looked through. Four files are read at a time. Every song is saved the moment it is read,
+// and for a folder, each sub-folder is marked done once all of it is in, so if the app is closed,
+// the next run skips the finished sub-folders without listing them again.
+async function importItems(items, folder = null) {
   if (importing) { toast('An import is already running'); return null; }
-  if (!items.length) { toast('No audio files found'); return { added: 0 }; }
+  if (!folder && !items.length) { toast('No audio files found'); return { added: 0 }; }
   importing = true;
   navigator.storage?.persist?.().catch(() => {});
   let mm = null;
@@ -297,36 +312,59 @@ async function importItems(items) {
   const seen = new Set(all.map(t => `${t.fileName}|${t.size}`));
   // Files already taken from a linked folder are recognised by their place in it, without opening them again.
   const knownPath = new Set(all.filter(t => t.folderId && t.path).map(t => `${t.folderId}|${t.path}`));
-  const legacy = new Map();   // songs linked before paths were recorded
+  const legacy = new Map();   // songs linked before places in the folder were recorded
   for (const t of all) if (t.folderId && !t.path) { const k = `${t.folderId}|${t.fileName}`; (legacy.get(k) || legacy.set(k, []).get(k)).push(t); }
-  const todo = items.filter(it => !(it.path && knownPath.has(`${it.folderId}|${it.path}`)));
-  const legacyNames = new Map();   // how many files in the folder carry each name
-  for (const it of todo) if (it.path && it.handle) { const k = `${it.folderId}|${it.handle.name}`; legacyNames.set(k, (legacyNames.get(k) || 0) + 1); }
-  const total = todo.length, artBusy = new Set();
-  let added = 0, skipped = items.length - todo.length, failed = 0, done = 0, stop = false, full = false, lastDraw = 0, lastName = 0;
-  const unreadable = [];
-  if (!total) { importing = false; toast('Everything in that folder is already in your library'); return { added: 0 }; }
+  const artBusy = new Set(), unreadable = [];
+  let added = 0, skipped = 0, failed = 0, done = 0, found = 0, stop = false, full = false, lastDraw = 0, lastName = 0, walking = true;   // until the folder walk or the file list has handed everything over
 
   let lock = null;
   const keepAwake = async () => { try { if (importing && !document.hidden) lock = await navigator.wakeLock?.request('screen'); } catch {} };
   document.addEventListener('visibilitychange', keepAwake); keepAwake();
-  setBanner(`<span id="imp-text">Adding music…</span><div class="bar"><i></i></div><button class="btn" id="imp-stop">Stop</button><span class="muted imp-file" id="imp-file"></span><span class="muted" style="flex-basis:100%;font-size:12px">You can keep using the app. If you close it, it carries on from here next time.</span>`);
-  $('#imp-stop').onclick = () => { stop = true; };
+  setBanner(`<span id="imp-text">${folder ? `Adding music from “${esc(folder.name)}”…` : 'Adding music…'}</span><div class="bar"><i></i></div><button class="btn" id="imp-stop">Stop</button><span class="muted imp-file" id="imp-file"></span><span class="muted" style="flex-basis:100%;font-size:12px">You can keep using the app. If you close it, it carries on from here next time.</span>`);
+  $('#imp-stop').onclick = () => { stop = true; wake(); };
+  const progress = () => {
+    const txt = $('#imp-text'); if (txt) txt.textContent = walking ? `Adding music… ${done} done · ${found} found so far` : `Adding music… ${done} / ${found}`;
+    const bar = $('#banner .bar i'); if (bar) bar.style.width = (found ? done / found * 100 : 0) + '%';
+  };
+
+  // work queue shared by the folder walk (or the file list) and the four readers
+  const queue = []; let waiters = [];
+  const wake = () => { const w = waiters; waiters = []; w.forEach(r => r()); };
+  const push = it => { queue.push(it); found++; wake(); };
+  const take = async () => {
+    for (;;) {
+      if (stop) { while (queue.length) queue.shift().resolve?.(); return null; }
+      if (queue.length) return queue.shift();
+      if (!walking) return null;
+      await new Promise(r => waiters.push(r));
+    }
+  };
 
   const one = async it => {
     const label = it.path || it.file?.name || it.handle?.name || '';
-    if (it.path && it.handle) {
-      const olds = legacy.get(`${it.folderId}|${it.handle.name}`)?.filter(t => !t.path);
-      if (olds?.length === 1 && (legacyNames.get(`${it.folderId}|${it.handle.name}`) || 0) === 1) { olds[0].path = it.path; await idb.put('tracks', olds[0]); skipped++; return; }
-    }
-    if (Date.now() - lastName > 400) { lastName = Date.now(); const el = $('#imp-file'); if (el) el.textContent = 'Reading ' + label; }
     try {
+      if (it.path && it.handle) {   // a song from an older import of this folder: claim it by name without opening the file
+        const olds = legacy.get(`${it.folderId}|${it.handle.name}`)?.filter(t => !t.path);
+        if (olds?.length === 1) { olds[0].path = it.path; await idb.put('tracks', olds[0]); skipped++; return; }
+      }
+      if (it.path && it.handle && !legacy.has(`${it.folderId}|${it.handle.name}`)) {
+        // Linked folder: add the song at once, named from its file and folder names. The details
+        // inside the file are read later in the background, because opening files can be very slow.
+        const n = namesFromPath(it.path), id = uid();
+        const albumKey = `${norm(n.artist)}::${norm(n.album)}`;
+        const t = { id, title: n.title, artist: n.artist, albumArtist: '', album: n.album, albumKey, artId: n.album ? albumKey : `t::${id}`,
+          year: null, trackNo: n.trackNo, discNo: null, genre: '', duration: null, fileName: it.handle.name, size: null, linked: true,
+          folderId: it.folderId, path: it.path, addedAt: Date.now(), liked: 0, plays: 0, lastPlayed: 0, tagsPending: true };
+        await idb.put('files', it.handle, id); await idb.put('tracks', t);
+        S.tracks.set(id, t); added++; return;
+      }
+      if (Date.now() - lastName > 400) { lastName = Date.now(); const el = $('#imp-file'); if (el) el.textContent = 'Reading ' + label; }
       let file;
       try { file = it.file || await within(it.handle.getFile(), IMPORT_WAIT.file); }
       catch (e) { unreadable.push(label); console.warn('could not open', label, e); failed++; return; }
       if (!(AUDIO_EXT.test(file.name) || file.type.startsWith('audio/'))) return;
       if (it.path) {
-        const old = legacy.get(`${it.folderId}|${file.name}`)?.find(t => t.size === file.size && !t.path);
+        const old = legacy.get(`${it.folderId}|${file.name}`)?.find(t => (t.size == null || t.size === file.size) && !t.path);   // size is unknown until the details pass has read the file
         if (old) { old.path = it.path; await idb.put('tracks', old); skipped++; return; }
       }
       const sig = `${file.name}|${file.size}`;
@@ -362,62 +400,78 @@ async function importItems(items) {
       S.tracks.set(id, t); added++;
     } catch (e) {
       console.warn('import failed', e);
-      if (e?.name === 'QuotaExceededError') { full = stop = true; } else failed++;
+      if (e?.name === 'QuotaExceededError') { full = stop = true; wake(); } else failed++;
     } finally {
-      done++;
-      const txt = $('#imp-text'); if (txt) txt.textContent = `Adding music… ${done} / ${total}`;
-      const bar = $('#banner .bar i'); if (bar) bar.style.width = (done / total * 100) + '%';
+      done++; it.resolve?.(); progress();
       if (added && Date.now() - lastDraw > 4000 && view.scrollTop < 10 && ['home', 'library'].includes(page())) { lastDraw = Date.now(); rebuild(); route(); }
     }
   };
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(4, total) }, async () => { while (!stop && next < total) await one(todo[next++]); }));
+  const readers = Array.from({ length: 4 }, async () => { for (let it; (it = await take());) await one(it); });
+
+  let finished = !folder, walkFailed = false;
+  if (folder) {
+    const doneDirs = new Set(folder.doneDirs || []);
+    let lastSave = 0;
+    const saveProgress = async force => { if (force || Date.now() - lastSave > 3000) { lastSave = Date.now(); folder.doneDirs = [...doneDirs]; await saveFolders(); } };
+    const walk = async (dir, prefix) => {
+      if (stop) return false;
+      if (doneDirs.has(prefix)) return true;   // finished on an earlier run: not even listed again
+      const files = [], subs = [];
+      for await (const h of dir.values()) { if (stop) return false; if (h.kind === 'file') { if (AUDIO_EXT.test(h.name)) files.push(h); } else subs.push(h); }
+      const waits = [];
+      for (const h of files) {
+        const path = prefix + h.name;
+        if (knownPath.has(`${folder.id}|${path}`)) { skipped++; continue; }
+        waits.push(new Promise(res => push({ handle: h, path, folderId: folder.id, resolve: res })));
+      }
+      for (const sd of subs) if (!await walk(sd, prefix + sd.name + '/')) return false;
+      await Promise.all(waits);
+      if (stop) return false;
+      for (const sd of subs) doneDirs.delete(prefix + sd.name + '/');   // the parent now covers them
+      doneDirs.add(prefix); await saveProgress();
+      return true;
+    };
+    try { finished = await walk(folder.handle, ''); }
+    catch (e) { console.warn('folder walk', e); walkFailed = true; }
+    walking = false; wake();
+  } else {
+    for (const it of items) push(it);
+    walking = false; wake();
+  }
+  await Promise.all(readers);
 
   importing = false; setBanner('');
   document.removeEventListener('visibilitychange', keepAwake); try { await lock?.release(); } catch {}
+  if (folder && (finished || (stop && !full))) { folder.pending = false; folder.doneDirs = []; await saveFolders(); }   // done, or stopped on purpose
   rebuild(); route();
+  if (walkFailed) toast("Couldn't finish reading that folder. It carries on next time you open the app.");
   if (unreadable.length) {
     ask({ title: `${unreadable.length} file${unreadable.length === 1 ? '' : 's'} could not be opened`, text: `Your phone or computer didn't hand ${unreadable.length === 1 ? 'this file' : 'these files'} over, so ${unreadable.length === 1 ? 'it was' : 'they were'} skipped. This usually means a file is damaged, still downloading, or stored online only. Everything else was added. ${unreadable.slice(0, 8).join(' · ')}${unreadable.length > 8 ? ` and ${unreadable.length - 8} more` : ''}`, ok: 'OK' });
   }
-  toast(full ? `Storage is full — stopped after ${added} songs` : added ? `Added ${added} song${added === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in library` : ''}`
-    : skipped ? 'Those songs are already in your library' : failed ? 'Could not read those files' : 'No audio files found');
+  if (!walkFailed) toast(full ? `Storage is full — stopped after ${added} songs` : added ? `Added ${added} song${added === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in library` : ''}`
+    : skipped ? (folder ? 'Everything in that folder is already in your library' : 'Those songs are already in your library') : failed ? 'Could not read those files' : 'No audio files found');
   checkFolderAccess();
+  setTimeout(tagPass, 500);
   return { added, stopped: stop };
 }
 
-async function* walkDir(dir, prefix = '') {
-  for await (const h of dir.values()) {
-    if (h.kind === 'file') { if (AUDIO_EXT.test(h.name)) yield { handle: h, path: prefix + h.name }; }
-    else yield* walkDir(h, prefix + h.name + '/');
-  }
-}
 const saveFolders = () => idb.put('kv', S.folders, 'folders').catch(() => {});
 async function scanFolder(folder) {
   if (importing) return toast('An import is already running');
-  folder.pending = true; await saveFolders();   // stays set until the whole folder is in, so an interrupted scan resumes
-  setBanner(`<span id="scan-text">Looking through “${esc(folder.name)}”…</span>`);
-  const items = []; let lastDraw = 0;
-  try {
-    for await (const f of walkDir(folder.handle)) {
-      items.push({ handle: f.handle, path: f.path, folderId: folder.id });
-      if (Date.now() - lastDraw > 500) { lastDraw = Date.now(); const el = $('#scan-text'); if (el) el.textContent = `Looking through “${folder.name}”… ${items.length} songs found`; }
-    }
-  } catch (e) { setBanner(''); return toast('Could not read that folder'); }
-  setBanner('');
-  const r = await importItems(items);
-  if (r) { folder.pending = false; await saveFolders(); }   // finished, or stopped on purpose
+  folder.pending = true; await saveFolders();   // stays set until the whole folder is in, so an interrupted run resumes
+  await importItems(null, folder);
 }
 async function addFolder() {
   if (!window.showDirectoryPicker) return $('#dir-input').click();
   let handle;
   try { handle = await showDirectoryPicker({ mode: 'read', id: 'music' }); } catch { return; }
-  for (const f of S.folders) if (await f.handle.isSameEntry(handle)) return scanFolder(f);
+  for (const f of S.folders) if (await f.handle.isSameEntry(handle)) { if (!f.pending) f.doneDirs = []; return scanFolder(f); }
   const folder = { id: uid(), name: handle.name, handle };
   S.folders.push(folder); await saveFolders();
   await scanFolder(folder);
 }
 async function checkFolderAccess() {
-  if (importing) return;
+  if (importing || tagging) return;
   for (const f of S.folders) {
     if (await f.handle.queryPermission({ mode: 'read' }) !== 'granted') {
       const unfinished = S.folders.some(x => x.pending);
@@ -429,6 +483,59 @@ async function checkFolderAccess() {
   return true;
 }
 // Carry on with any folder whose scan was cut short (app closed, phone slept, tab reloaded).
+let tagging = false, tagStop = false;
+async function tagPass() {
+  if (tagging || importing) return;
+  const todo = [...S.tracks.values()].filter(t => t.tagsPending).sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0) || a.addedAt - b.addedAt);
+  if (!todo.length) return;
+  for (const f of S.folders) if (await f.handle.queryPermission({ mode: 'read' }) !== 'granted') return;   // asked for again via Reconnect
+  tagging = true; tagStop = false;
+  let mm = null; try { mm = await import('./vendor/music-metadata.js'); } catch { tagging = false; return; }
+  const total = todo.length, unreadable = []; let done = 0, slowOpen = 0, slowRead = 0, next = 0, lastDraw = 0, cur = null, curAt = 0;
+  setBanner(`<span id="tag-text">Reading song details…</span><div class="bar"><i></i></div><button class="btn" id="tag-stop">Pause</button><span class="muted imp-file" id="tag-file"></span><span class="muted" style="flex-basis:100%;font-size:12px">All your songs are in and playable. This fills in proper names and covers; you can use the app as normal.</span>`);
+  $('#tag-stop').onclick = () => { tagStop = true; };
+  const tick = setInterval(() => {
+    const el = $('#tag-file'); if (el && cur) el.textContent = `Reading ${cur} · ${Math.round((performance.now() - curAt) / 1000)}s` + (slowOpen + slowRead ? ` · slow files skipped: ${slowOpen} wouldn't open, ${slowRead} too slow to read` : '');
+  }, 1000);
+  const one = async t => {
+    cur = t.path || t.fileName; curAt = performance.now();
+    try {
+      let file;
+      try { file = await within(getFile(t.id), IMPORT_WAIT.file); }
+      catch (e) { if (e?.name === 'NotAllowedError') { tagStop = true; return 'retry'; } slowOpen++; unreadable.push(t.path || t.fileName); return; }
+      t.size = file.size;
+      let meta;
+      try { meta = await within(readTags(mm, file, true), IMPORT_WAIT.tags); } catch { slowRead++; return; }
+      const c = meta.common || {}, f = meta.format || {};
+      if (c.title) t.title = c.title;
+      if (c.artist) t.artist = c.artist;
+      if (c.albumartist) t.albumArtist = c.albumartist;
+      if (c.album) t.album = c.album;
+      t.year = c.year || t.year; t.trackNo = c.track?.no || t.trackNo; t.discNo = c.disk?.no || null; t.genre = c.genre?.[0] || t.genre; t.duration = f.duration || t.duration;
+      t.albumKey = `${norm(t.albumArtist || t.artist)}::${norm(t.album)}`;
+      const artId = t.album ? t.albumKey : `t::${t.id}`;
+      if (c.picture?.length && !S.artUrls.has(artId)) {
+        try { const thumb = await within(makeThumb(c.picture[0]), IMPORT_WAIT.art); await idb.put('art', thumb, artId); S.artUrls.set(artId, URL.createObjectURL(thumb)); } catch {}
+      }
+      t.artId = artId;
+    } finally {
+      if (t.tagsPending && !tagStop) { delete t.tagsPending; await idb.put('tracks', t).catch(() => {}); }
+      done++;
+      const tx = $('#tag-text'); if (tx) tx.textContent = `Reading song details… ${done} / ${total}`;
+      const bar = $('#banner .bar i'); if (bar) bar.style.width = (done / total * 100) + '%';
+      if (Date.now() - lastDraw > 5000 && view.scrollTop < 10 && ['home', 'library', 'artist', 'album'].includes(page())) { lastDraw = Date.now(); rebuild(); rerender(); }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, async () => { while (!tagStop && !importing && next < total) await one(todo[next++]); }));
+  clearInterval(tick); tagging = false;
+  if ($('#tag-text')) setBanner('');
+  rebuild(); rerender(); syncPlayer();
+  if (!tagStop && !importing) {
+    toast(`Song details read${slowOpen + slowRead ? ` · ${slowOpen + slowRead} files kept their file names` : ''}`);
+    if (unreadable.length) ask({ title: `${unreadable.length} file${unreadable.length === 1 ? '' : 's'} could not be opened`, text: `These stay in your library under their file names, but may not play. This usually means a file is damaged, still downloading, or stored online only. ${unreadable.slice(0, 8).join(' · ')}${unreadable.length > 8 ? ` and ${unreadable.length - 8} more` : ''}`, ok: 'OK' });
+  }
+  checkFolderAccess();
+}
 async function resumePending() {
   for (const f of S.folders) {
     if (!f.pending || importing) continue;
@@ -436,6 +543,7 @@ async function resumePending() {
     toast('Carrying on adding your music…');
     await scanFolder(f);
   }
+  tagPass();
 }
 $('#file-input').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; importItems(fs.map(file => ({ file }))); });
 $('#dir-input').addEventListener('change', e => { const fs = [...e.target.files].filter(f => AUDIO_EXT.test(f.name)); e.target.value = ''; importItems(fs.map(file => ({ file }))); });
@@ -2253,6 +2361,7 @@ const A = {
   'rescan': async el => {
     const f = S.folders.find(x => x.id === el.dataset.id); if (!f) return;
     try { if (await f.handle.requestPermission({ mode: 'read' }) !== 'granted') return; } catch { return; }
+    if (!f.pending) f.doneDirs = [];
     scanFolder(f);
   },
   'unlink': async el => {

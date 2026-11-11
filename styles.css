@@ -294,8 +294,8 @@ body.selecting #toast { bottom: 190px; }
 
 /* ---------- light theme ---------- */
 :root[data-theme=light] { --bg: #f5f4f0; --panel: #eceae5; --raised: #e1dfd9; --hover: #d5d2cb; --line: #cfccc5; --text: #17171c; --muted: #5d5b66; --track: #b9b6ae; }
-:root[data-theme=light] #np, :root[data-theme=light] #car { --bg: #0e0e12; --panel: #15151b; --raised: #1d1d25; --hover: #262630; --line: #2a2a35; --text: #f3f1ee; --muted: #a09ea8; --track: #4a4a58; color: var(--text); }
-:root[data-theme=light] .card, :root[data-theme=light] .settings-block { box-shadow: 0 1px 2px #0001; }
+:root[data-tone=light] #np, :root[data-tone=light] #car { --bg: #0e0e12; --panel: #15151b; --raised: #1d1d25; --hover: #262630; --line: #2a2a35; --text: #f3f1ee; --muted: #a09ea8; --track: #4a4a58; color: var(--text); }
+:root[data-tone=light] .card, :root[data-tone=light] .settings-block { box-shadow: 0 1px 2px #0001; }
 body.dragging::after { color: #fff; }
 .swatches { display: flex; gap: 10px; margin-top: 14px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; }
@@ -358,3 +358,25 @@ html { touch-action: manipulation; }
 
 .imp-file { flex-basis: 100%; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-file:empty { display: none; }
+
+/* ---------- more themes ---------- */
+:root[data-theme=oled]   { --bg: #000000; --panel: #0b0b0b; --raised: #161616; --hover: #222222; --line: #1f1f1f; --text: #f5f5f5; --muted: #9a9a9a; --track: #3a3a3a; }
+:root[data-theme=ocean]  { --bg: #07131f; --panel: #0c1d2e; --raised: #12283d; --hover: #1a3550; --line: #1d3a55; --text: #e8f1fa; --muted: #8fa9c2; --track: #2c4a66; }
+:root[data-theme=forest] { --bg: #0b1410; --panel: #111e18; --raised: #182920; --hover: #21362a; --line: #223a2d; --text: #eef5ef; --muted: #93aa9a; --track: #33503f; }
+:root[data-theme=sunset] { --bg: #1a0f1f; --panel: #24142b; --raised: #301a38; --hover: #3d2147; --line: #3f2449; --text: #fbeff4; --muted: #c4a3b6; --track: #5a3566; }
+:root[data-theme=neon]   { --bg: #0a0618; --panel: #120b26; --raised: #1a1036; --hover: #241747; --line: #2a1b52; --text: #f0eaff; --muted: #a89bd0; --track: #3b2a6e; }
+:root[data-theme=vinyl]  { --bg: #f3e9d8; --panel: #eadcc4; --raised: #e0cfb2; --hover: #d4c09f; --line: #cdb894; --text: #2b1d10; --muted: #6e5a44; --track: #b8a17d; }
+:root[data-theme=neon] .pp, :root[data-theme=neon] .btn.primary { box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 55%, transparent); }
+:root[data-theme=oled] #player, :root[data-theme=oled] #tabs, :root[data-theme=oled] #sidebar { background: #000; }
+:root[data-tone=light] { --accent-ink: #fff; }
+:root[data-tone=light] #np, :root[data-tone=light] #car { --accent-ink: #1a0d08; }
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; max-width: 640px; }
+.theme-card { display: grid; gap: 6px; padding: 6px; border-radius: 12px; border: 2px solid transparent; text-align: left; font-size: 13px; font-weight: 600; color: var(--text); }
+.theme-card:hover { background: var(--hover); }
+.theme-card.on { border-color: var(--accent); }
+.theme-prev { position: relative; display: block; height: 64px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px #8883; }
+.theme-prev i { position: absolute; left: 8px; right: 30px; height: 12px; border-radius: 4px; }
+.theme-prev i:first-child { top: 10px; } .theme-prev i:nth-child(2) { top: 28px; right: 46px; }
+.theme-prev b { position: absolute; right: 8px; bottom: 8px; width: 18px; height: 18px; border-radius: 50%; }
+.swatches { flex-wrap: wrap; }
+body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-color .25s; }

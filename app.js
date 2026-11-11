@@ -108,14 +108,55 @@ const S = {
 const T = id => S.tracks.get(id) || S.remote.get(id);
 const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
-const ACCENTS = { Coral: '#ff7a59', Blue: '#5b9dff', Green: '#3ddc97', Purple: '#a98bfa', Pink: '#ff6fae', Gold: '#f5b942' };
-function applyTheme() {
-  const r = document.documentElement;
-  r.dataset.theme = S.theme.mode; r.style.setProperty('--accent', S.theme.accent);
-  $('meta[name=theme-color]').content = S.theme.mode === 'light' ? '#f5f4f0' : '#0e0e12';
-  try { localStorage.setItem('cadence-theme', JSON.stringify(S.theme)); } catch {}
+// Each theme sets the whole palette; the accent can still be changed on top of it.
+const THEMES = {
+  dark:     { name: 'Midnight', tone: 'dark',  bg: '#0e0e12', panel: '#15151b', raised: '#1d1d25', accent: '#ff7a59' },
+  oled:     { name: 'Pure black', tone: 'dark', bg: '#000000', panel: '#0b0b0b', raised: '#161616', accent: '#5b9dff' },
+  ocean:    { name: 'Ocean',    tone: 'dark',  bg: '#07131f', panel: '#0c1d2e', raised: '#12283d', accent: '#4cc9f0' },
+  forest:   { name: 'Forest',   tone: 'dark',  bg: '#0b1410', panel: '#111e18', raised: '#182920', accent: '#7bd389' },
+  sunset:   { name: 'Sunset',   tone: 'dark',  bg: '#1a0f1f', panel: '#24142b', raised: '#301a38', accent: '#ff8a5b' },
+  neon:     { name: 'Neon',     tone: 'dark',  bg: '#0a0618', panel: '#120b26', raised: '#1a1036', accent: '#ff2fd6' },
+  light:    { name: 'Daylight', tone: 'light', bg: '#f5f4f0', panel: '#eceae5', raised: '#e1dfd9', accent: '#e8633f' },
+  vinyl:    { name: 'Vinyl',    tone: 'light', bg: '#f3e9d8', panel: '#eadcc4', raised: '#e0cfb2', accent: '#b5541c' },
+};
+const ACCENTS = { Coral: '#ff7a59', Blue: '#5b9dff', Sky: '#4cc9f0', Green: '#3ddc97', Purple: '#a98bfa', Pink: '#ff6fae', Magenta: '#ff2fd6', Gold: '#f5b942', Rust: '#b5541c' };
+const artTint = new Map();
+// Pull a lively colour out of a cover, for the "Match album art" option.
+async function tintFrom(url) {
+  if (artTint.has(url)) return artTint.get(url);
+  let hex = null;
+  try {
+    const img = new Image(); img.crossOrigin = 'anonymous'; img.src = url; await img.decode();
+    const c = document.createElement('canvas'); c.width = c.height = 24; const g = c.getContext('2d'); g.drawImage(img, 0, 0, 24, 24);
+    const d = g.getImageData(0, 0, 24, 24).data; let best = null, score = -1;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i] / 255, gg = d[i + 1] / 255, bb = d[i + 2] / 255, mx = Math.max(r, gg, bb), mn = Math.min(r, gg, bb), l = (mx + mn) / 2, sat = mx === mn ? 0 : (mx - mn) / (1 - Math.abs(2 * l - 1));
+      const sc = sat * (1 - Math.abs(l - 0.5) * 1.6); if (sc > score) { score = sc; best = [r, gg, bb, mx, mn, sat]; }
+    }
+    if (best && score > 0.08) {
+      const [r, gg, bb, mx, mn] = best; let h = 0;
+      if (mx !== mn) { const dd = mx - mn; h = mx === r ? ((gg - bb) / dd + (gg < bb ? 6 : 0)) : mx === gg ? (bb - r) / dd + 2 : (r - gg) / dd + 4; h *= 60; }
+      hex = `hsl(${Math.round(h)} 78% ${THEMES[S.theme.mode]?.tone === 'light' ? 40 : 62}%)`;
+    }
+  } catch { /* a cover from a site that doesn't allow this: keep the theme colour */ }
+  artTint.set(url, hex); return hex;
 }
-try { const saved = JSON.parse(localStorage.getItem('cadence-theme')); if (saved?.mode && /^#[0-9a-f]{6}$/i.test(saved.accent)) S.theme = saved; } catch {}
+let tintFor = null;
+function applyTheme() {
+  const r = document.documentElement, th = THEMES[S.theme.mode] || THEMES.dark;
+  r.dataset.theme = S.theme.mode; r.dataset.tone = th.tone; r.style.setProperty('--accent', S.theme.accent);
+  $('meta[name=theme-color]').content = th.bg;
+  try { localStorage.setItem('cadence-theme', JSON.stringify(S.theme)); } catch {}
+  tintFor = null; if (S.theme.auto) syncTint();
+}
+function syncTint() {
+  if (!S.theme.auto) return;
+  const t = typeof current === 'function' ? current() : null, url = t && S.artUrls.get(t.artId);
+  if (url === tintFor) return; tintFor = url;
+  if (!url) return document.documentElement.style.setProperty('--accent', S.theme.accent);
+  tintFrom(url).then(c => { if (tintFor === url) document.documentElement.style.setProperty('--accent', c || S.theme.accent); });
+}
+try { const saved = JSON.parse(localStorage.getItem('cadence-theme')); if (THEMES[saved?.mode] && /^#[0-9a-f]{6}$/i.test(saved.accent)) S.theme = { auto: false, ...saved }; } catch {}
 applyTheme();
 let audio = $('#audio');   // the element currently in charge; see the playback section
 const view = $('#view');
@@ -714,6 +755,7 @@ function syncPlayer() {
   setArt($('#p-art'), t); setArt($('#np-art'), t);
   const u = t && S.artUrls.get(t.artId);
   $('#np-bg').style.backgroundImage = u ? `url('${u}')` : 'none';
+  syncTint();
   $$('.pp').forEach(b => { b.innerHTML = ic(on ? 'pause' : 'play'); b.setAttribute('aria-label', on ? 'Pause' : 'Play'); });
   $$('.b-shuffle').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-label', S.shuffle ? 'Shuffle is on' : 'Shuffle is off'); });
   $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
@@ -1965,8 +2007,10 @@ const VIEWS = {
         <div class="hero-actions"><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
       soundSettings(),
       `<div class="settings-block"><h2>Appearance</h2>
-        <div class="hero-actions">${['dark', 'light'].map(m => `<button class="btn ${S.theme.mode === m ? 'primary' : ''}" data-act="theme-mode" data-mode="${m}">${m === 'dark' ? 'Dark' : 'Light'}</button>`).join('')}</div>
-        <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div></div>`,
+        <div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-card ${S.theme.mode === k ? 'on' : ''}" data-act="theme-mode" data-mode="${k}" aria-label="${t.name} theme"><span class="theme-prev" style="background:${t.bg}"><i style="background:${t.panel}"></i><i style="background:${t.raised}"></i><b style="background:${t.accent}"></b></span><span>${t.name}</span></button>`).join('')}</div>
+        <h2 style="margin-top:20px">Accent colour</h2>
+        <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
+        <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
         <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
@@ -2120,8 +2164,9 @@ const A = {
   'rad-tag': el => { S.radTag = el.dataset.tag; S.radQ = ''; saveRadioPrefs(); rerender(); },
   'car-on': () => carMode(true), 'car-exit': () => carMode(false),
   'stat-p': el => { S.statP = +el.dataset.d; rerender(); },
-  'theme-mode': el => { S.theme.mode = el.dataset.mode; applyTheme(); rerender(); },
-  'theme-accent': el => { S.theme.accent = el.dataset.c; applyTheme(); rerender(); },
+  'theme-mode': el => { const th = THEMES[el.dataset.mode]; if (!th) return; S.theme.mode = el.dataset.mode; S.theme.accent = th.accent; artTint.clear(); applyTheme(); rerender(); },
+  'theme-auto': () => { S.theme.auto = !S.theme.auto; applyTheme(); if (!S.theme.auto) document.documentElement.style.setProperty('--accent', S.theme.accent); rerender(); },
+  'theme-accent': el => { S.theme.accent = el.dataset.c; S.theme.auto = false; applyTheme(); rerender(); },
   'export-view': () => exportTracks(viewIds),
   'sel-export': () => { const ids = [...S.sel]; clearSel(); exportTracks(ids); },
   // The artist line under the playing song leads to everything by that artist.

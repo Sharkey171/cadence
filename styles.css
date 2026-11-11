@@ -380,3 +380,9 @@ html { touch-action: manipulation; }
 .theme-prev b { position: absolute; right: 8px; bottom: 8px; width: 18px; height: 18px; border-radius: 50%; }
 .swatches { flex-wrap: wrap; }
 body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-color .25s; }
+
+#rescue { position: fixed; inset: 0; z-index: 100; background: #0e0e12; color: #f3f1ee; padding: calc(40px + var(--sat)) 24px 24px; display: flex; flex-direction: column; gap: 14px; font-size: 16px; }
+#rescue h2 { margin: 0; font-size: 22px; } #rescue p { margin: 0; color: #c9c5d0; line-height: 1.5; }
+#rescue button { padding: 14px 18px; border-radius: 999px; border: 0; font: inherit; font-weight: 700; background: #ff7a59; color: #1a0d08; }
+#rescue button + button { background: #262630; color: #f3f1ee; }
+#rescue .why { font-size: 12px; color: #807d88; }

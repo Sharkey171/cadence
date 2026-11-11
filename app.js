@@ -147,11 +147,12 @@ function applyTheme() {
   r.dataset.theme = S.theme.mode; r.dataset.tone = th.tone; r.style.setProperty('--accent', S.theme.accent);
   $('meta[name=theme-color]').content = th.bg;
   try { localStorage.setItem('cadence-theme', JSON.stringify(S.theme)); } catch {}
-  tintFor = null; if (S.theme.auto) syncTint();
+  tintFor = null; if (S.theme.auto && appReady) syncTint();
 }
+let appReady = false;
 function syncTint() {
-  if (!S.theme.auto) return;
-  const t = typeof current === 'function' ? current() : null, url = t && S.artUrls.get(t.artId);
+  if (!S.theme.auto || !appReady) return;
+  const t = current(), url = t && S.artUrls.get(t.artId);
   if (url === tintFor) return; tintFor = url;
   if (!url) return document.documentElement.style.setProperty('--accent', S.theme.accent);
   tintFrom(url).then(c => { if (tintFor === url) document.documentElement.style.setProperty('--accent', c || S.theme.accent); });
@@ -2352,6 +2353,7 @@ async function boot() {
   rebuild(); renderSidePlaylists(); syncPlayer();
   lastHash = location.hash; route();
   checkFolderAccess().then(ok => { if (ok) resumePending(); });
+  appReady = true; syncTint(); document.documentElement.dataset.ready = '1';
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     const hadSW = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {

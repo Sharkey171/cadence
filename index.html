@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 <div id="app">
@@ -200,6 +200,24 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=21"></script>
+<script type="module" src="app.js?v=22"></script>
+<script>
+(function () {
+  var shown = false;
+  function rescue(why) {
+    if (shown || document.documentElement.dataset.ready) return; shown = true;
+    var box = document.createElement('div'); box.id = 'rescue';
+    box.innerHTML = '<h2>Cadence didn\u2019t start properly</h2><p>' + (why ? 'Something went wrong while it was opening. ' : 'It is taking much longer than usual to open. ') +
+      'Your music, playlists and likes are safe. Resetting the look (theme and colours) usually fixes this.</p>' +
+      '<button id="rescue-reset">Reset the look and reopen</button><button id="rescue-reload">Just reopen</button>' +
+      (why ? '<p class="why">' + String(why).replace(/[<&]/g, '') + '</p>' : '');
+    document.body.appendChild(box);
+    document.getElementById('rescue-reset').onclick = function () { try { localStorage.removeItem('cadence-theme'); } catch (e) {} location.reload(); };
+    document.getElementById('rescue-reload').onclick = function () { location.reload(); };
+  }
+  addEventListener('error', function (e) { if (!document.documentElement.dataset.ready) setTimeout(function () { rescue(e.message || 'error'); }, 300); });
+  setTimeout(function () { rescue(''); }, 25000);
+})();
+</script>
 </body>
 </html>

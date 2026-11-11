@@ -417,7 +417,9 @@ audio.addEventListener('ended', () => {
 let countedLoad = 0;
 audio.addEventListener('play', () => {
   const t = current();
-  if (S.loadedId && t && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t); }
+  if (S.loadedId && t && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
+    if (onlineOK() && !coverJob && !S.artUrls.has(t.artId) && !coverTried.has(t.artId)) findCoverOnline(t).catch(e => console.warn('cover lookup', e));
+  }
   syncPlayer();
 });
 audio.addEventListener('pause', syncPlayer);
@@ -558,6 +560,12 @@ function trackMenu(t, ev, ctx = {}) {
     { label: 'Go to artist', icon: 'user', fn: () => { closeNP(); location.hash = `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`; } },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
+    !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
+      if (!navigator.onLine) return toast('Connect to the internet to look up covers');
+      if (!(t.albumArtist || t.artist)) return toast('Add the artist name first (Edit info)');
+      toast('Looking for a cover…');
+      try { toast(await findCoverOnline(t) ? 'Cover added' : 'No matching cover found'); } catch { toast('The cover service could not be reached'); }
+    } },
     { label: 'Edit info', icon: 'edit', fn: () => editInfo(t) },
     pl && ctx.i > 0 && { label: 'Move up', icon: 'up', fn: () => movePl(pl, ctx.i, -1) },
     pl && ctx.i != null && ctx.i < viewIds.length - 1 && { label: 'Move down', icon: 'dn', fn: () => movePl(pl, ctx.i, 1) },
@@ -592,18 +600,90 @@ function sleepMenu(e) {
   ], e, sleepLabel());
 }
 
+/* ---------------- online lookup: missing covers + lyrics ---------------- */
+// Only the song's title / artist / album are sent. Results are saved on the device for offline use.
+const onlineOK = () => S.online !== false && navigator.onLine;
+const cleanTitle = s => String(s || '').replace(/\s*[(\[][^)\]]*(official|video|audio|lyric|remaster|explicit|\bhd\b|\bhq\b)[^)\]]*[)\]]/gi, '').replace(/\s+(ft|feat)\.? .*$/i, '').trim();
+async function fetchJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+const sameArtist = (a, b) => { a = norm(a).replace(/^the /, ''); b = norm(b).replace(/^the /, ''); return !!a && !!b && (a.includes(b) || b.includes(a)); };
+
+async function findLyricsOnline(t) {
+  const q = new URLSearchParams({ track_name: cleanTitle(t.title) });
+  if (t.artist) q.set('artist_name', t.artist);
+  const list = await fetchJSON('https://lrclib.net/api/search?' + q);
+  let c = list.filter(x => (x.plainLyrics || x.syncedLyrics) && (!t.artist || sameArtist(x.artistName, t.artist)));
+  if (!c.length) return list.some(x => x.instrumental) ? 'This song is instrumental.' : null;
+  if (t.duration) c.sort((a, b) => Math.abs((a.duration || 0) - t.duration) - Math.abs((b.duration || 0) - t.duration));
+  return c[0].plainLyrics || c[0].syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, '');
+}
+
+let lastCoverCall = 0;
+const coverTried = new Set();
+async function coverSearch(term, entity) {
+  // The catalogue allows roughly 20 searches a minute, so space them out.
+  const wait = lastCoverCall + 3200 - Date.now();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  lastCoverCall = Date.now();
+  return (await fetchJSON('https://itunes.apple.com/search?' + new URLSearchParams({ term, entity, media: 'music', limit: 8 }))).results || [];
+}
+async function findCoverOnline(t) {
+  const artist = t.albumArtist || t.artist;
+  if (!artist || S.artUrls.has(t.artId)) return false;
+  coverTried.add(t.artId);
+  let hit = null;
+  if (t.album) hit = (await coverSearch(`${artist} ${t.album}`, 'album')).find(r => sameArtist(r.artistName, artist) && r.artworkUrl100);
+  if (!hit) hit = (await coverSearch(`${artist} ${cleanTitle(t.title)}`, 'song')).find(r => sameArtist(r.artistName, artist) && r.artworkUrl100);
+  if (!hit) return false;
+  const res = await fetch(hit.artworkUrl100.replace(/\d+x\d+bb/, '600x600bb'));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const img = await res.blob();
+  const thumb = await makeThumb({ data: await img.arrayBuffer(), format: img.type });
+  await idb.put('art', thumb, t.artId);
+  S.artUrls.set(t.artId, URL.createObjectURL(thumb));
+  rebuild(); if (!importing) rerender(); syncPlayer();
+  return true;
+}
+let coverJob = false;
+async function findAllCovers() {
+  if (coverJob || importing) return;
+  if (!navigator.onLine) return toast('Connect to the internet to look up covers');
+  const seen = new Set(), todo = [];
+  for (const t of S.tracks.values()) if (!S.artUrls.has(t.artId) && !seen.has(t.artId) && (t.albumArtist || t.artist)) { seen.add(t.artId); todo.push(t); }
+  if (!todo.length) return toast('No covers are missing');
+  coverJob = true; let found = 0, stop = false;
+  for (let i = 0; i < todo.length && !stop; i++) {
+    setBanner(`<span>Looking up covers… ${i + 1} / ${todo.length} · ${found} found</span><div class="bar"><i style="width:${(i + 1) / todo.length * 100}%"></i></div><button class="btn" id="cov-stop">Stop</button>`);
+    $('#cov-stop').onclick = () => { stop = true; };
+    try { if (await findCoverOnline(todo[i])) found++; } catch (e) { console.warn('cover lookup', e); }
+  }
+  coverJob = false; setBanner('');
+  toast(`Found ${found} of ${todo.length} missing cover${todo.length === 1 ? '' : 's'}`);
+}
+
 /* ---------------- lyrics, editing, reordering ---------------- */
 async function showLyrics(t) {
-  let text = '';
+  const d = $('#lyr'), pre = $('pre', d), src = $('.lyr-src', d);
+  $('h3', d).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  pre.textContent = 'Looking for lyrics…'; src.textContent = '';
+  d.showModal(); pre.scrollTop = 0;
+  let text = '', from = '';
   try {
     const mm = await import('./vendor/music-metadata.js');
     const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true });
-    text = (meta.common.lyrics || []).map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n');
+    text = (meta.common.lyrics || []).map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n').trim();
   } catch (e) { console.warn('lyrics', e); }
-  const d = $('#lyr');
-  $('h3', d).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
-  $('pre', d).textContent = text.trim() || 'No lyrics are saved inside this file.';
-  d.showModal(); $('pre', d).scrollTop = 0;
+  if (!text) { text = await idb.get('kv', 'lyr:' + t.id).catch(() => '') || ''; if (text) from = 'Lyrics from LRCLIB, saved for offline use'; }
+  let note = 'No lyrics found for this song.';
+  if (!text) {
+    if (S.online === false) note = 'No lyrics are saved inside this file. Turn on online lookups in Settings to search for them.';
+    else if (!navigator.onLine) note = 'No lyrics are saved for this song yet. Connect to the internet and open this again to look them up.';
+    else try {
+      text = await findLyricsOnline(t) || '';
+      if (text) { from = 'Lyrics from LRCLIB, saved for offline use'; idb.put('kv', text, 'lyr:' + t.id).catch(() => {}); }
+    } catch (e) { console.warn('lyrics lookup', e); note = 'The lyrics service could not be reached. Try again later.'; }
+  }
+  if ($('h3', d).textContent !== `${t.title} · ${t.artist || 'Unknown artist'}`) return;   // another song was opened meanwhile
+  pre.textContent = text || note; src.textContent = from; pre.scrollTop = 0;
 }
 async function editInfo(t) {
   const d = $('#edit'), f = $('form', d).elements;
@@ -835,6 +915,8 @@ const VIEWS = {
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
         <button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div>`,
+      `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
+        <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
         <div class="hero-actions"><button class="btn" data-act="export">${ic('save')}Save backup file</button><button class="btn" data-act="import-backup">${ic('up')}Restore from file</button></div></div>`,
       installEvt ? `<div class="settings-block"><h2>Install</h2><p>Install Cadence as an app with its own window and icon.</p><button class="btn primary" data-act="install">Install app</button></div>` : '',
@@ -915,6 +997,8 @@ const A = {
   'open-np': openNP, 'close-np': closeNP,
   'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e, { np: true }); },
   'sleep': (el, e) => sleepMenu(e),
+  'toggle-online': async () => { S.online = S.online === false; await idb.put('kv', S.online, 'online'); rerender(); },
+  'find-covers': findAllCovers,
   'export': exportBackup,
   'import-backup': () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json'; i.onchange = () => i.files[0] && importBackup(i.files[0]); i.click(); },
   'reconnect': async () => {
@@ -992,6 +1076,7 @@ async function boot() {
   const [tracks, playlists, artKeys, artBlobs, state, folders] = await Promise.all([
     idb.all('tracks'), idb.all('playlists'), idb.keys('art'), idb.all('art'), idb.get('kv', 'state'), idb.get('kv', 'folders'),
   ]);
+  S.online = await idb.get('kv', 'online');
   for (const t of tracks) S.tracks.set(t.id, t);
   artKeys.forEach((k, i) => S.artUrls.set(k, URL.createObjectURL(artBlobs[i])));
   S.playlists = playlists.sort((a, b) => a.createdAt - b.createdAt);

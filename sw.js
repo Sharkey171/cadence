@@ -1,7 +1,7 @@
 // Offline app shell. Music itself lives in IndexedDB / linked folders, not here.
 // Bump VERSION (and the ?v= numbers in index.html) with every release: each version gets its
 // own complete, freshly downloaded set of files, so the page and its script can never mismatch.
-const VERSION = 13;
+const VERSION = 14;
 const CACHE = `cadence-shell-v${VERSION}`;
 const SHELL = [
   './', 'index.html', `styles.css?v=${VERSION}`, `app.js?v=${VERSION}`, 'vendor/music-metadata.js',

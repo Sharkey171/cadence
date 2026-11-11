@@ -1402,7 +1402,7 @@ async function ytStart(items, i) {
   $('#yt').hidden = false; $('#yt-title').textContent = it.title || 'YouTube';
   if (!ytPlayer) {
     ytPlayer = new YT.Player('yt-frame', {
-      host: 'https://www.youtube-nocookie.com', width: '100%', height: '100%', videoId: it.list ? undefined : it.id,
+      host: S.yt.signedIn ? 'https://www.youtube.com' : 'https://www.youtube-nocookie.com', width: '100%', height: '100%', videoId: it.list ? undefined : it.id,
       playerVars: it.list ? { listType: 'playlist', list: it.list, autoplay: 1, playsinline: 1 } : { autoplay: 1, playsinline: 1, rel: 0 },
       events: { onReady: () => { ytPlayerReady = true; if (ytPending) { const p = ytPending; ytPending = null; ytLoad(p); } }, onStateChange: ytState, onError: () => { toast("That video can't be played outside YouTube"); ytNext(); } },
     });
@@ -1424,6 +1424,12 @@ function ytState(e) {
       }
     }
   } else if (e.data === 0) ytNext();
+}
+// The player is built once, so changing how it signs in means building it again.
+function ytReset() {
+  try { ytPlayer?.destroy?.(); } catch {}
+  ytPlayer = null; ytPlayerReady = false; ytPending = null;
+  $('.yt-box').innerHTML = '<div id="yt-frame"></div>'; $('#yt').hidden = true; ytMark();
 }
 function ytClose() { try { ytPlayer?.stopVideo?.(); } catch {} $('#yt').hidden = true; ytMark(); }
 async function ytSubmit(q) {
@@ -1470,7 +1476,7 @@ async function youtubeView() {
     ytResults ? `<h2>${esc(ytHead)}</h2>` : '', ytResults ? (ytResults.length ? ytList(ytResults) : '<div class="empty">Nothing found.</div>') : null,
     S.yt.clientId ? '<h2>My YouTube account</h2>' + (ytToken ? '<div id="yt-pl" class="grid"><p class="muted">Loading your playlists…</p></div>' : `<div class="hero-actions"><button class="btn" data-act="yt-connect">${ic('user')}Connect my account</button></div>`) : '',
     S.ytSaved.length ? '<h2>Saved</h2>' : '', S.ytSaved.length ? ytList(S.ytSaved) : null,
-    "<p class=\"muted\" style=\"font-size:13px;margin-top:24px\">This plays through YouTube's own player, with YouTube's adverts. It needs an internet connection, and stops when the screen locks or you switch apps.</p>");
+    `<p class="muted" style="font-size:13px;margin-top:24px">This plays through YouTube's own player${S.yt.signedIn ? ', using the YouTube account signed in to this browser' : ", with YouTube's adverts. YouTube Premium members can remove them in Settings"}. It needs an internet connection, and stops when the screen locks or you switch apps.</p>`);
   ytMark();
   if (ytToken && S.yt.clientId) try {
     const d = await ytApi('playlists', { part: 'snippet,contentDetails', mine: 'true', maxResults: 50 }, true);
@@ -1907,7 +1913,9 @@ const VIEWS = {
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
         <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
         <label class="setfield">Google client ID (optional)<input id="yt-cid" type="text" value="${esc(S.yt.clientId)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
-        <div class="hero-actions"><button class="btn primary" data-act="yt-keys">Save</button><button class="btn" data-act="yt-help">How to get these</button></div></div>`,
+        <div class="hero-actions"><button class="btn primary" data-act="yt-keys">Save</button><button class="btn" data-act="yt-help">How to get these</button></div>
+        <h2 style="margin-top:22px">YouTube Premium</h2><p>If you pay for YouTube Premium, switch this on and sign in to youtube.com in this same browser. Videos played here should then have no adverts. With it on, YouTube can link what you play here to your account, as it does on its own site.</p>
+        <div class="hero-actions"><button class="btn ${S.yt.signedIn ? 'primary' : ''}" data-act="yt-signin" aria-label="Let the YouTube player use the YouTube account you are signed in to in this browser">Use my YouTube sign-in: ${S.yt.signedIn ? 'On' : 'Off'}</button><a class="btn" href="https://www.youtube.com/" target="_blank" rel="noopener">Open youtube.com to sign in</a></div></div>`,
       `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
@@ -2018,7 +2026,8 @@ const A = {
   },
   'yt-close': ytClose, 'yt-connect': ytConnect,
   'yt-open-pl': el => ytOpenPlaylist(el.dataset.id, el.dataset.name),
-  'yt-keys': async () => { S.yt = { key: $('#yt-key').value.trim(), clientId: $('#yt-cid').value.trim() }; ytToken = ''; await idb.put('kv', S.yt, 'yt'); toast('Saved'); },
+  'yt-signin': async () => { S.yt.signedIn = !S.yt.signedIn; await idb.put('kv', S.yt, 'yt'); ytReset(); rerender(); toast(S.yt.signedIn ? 'On. Sign in to youtube.com in this browser for it to take effect.' : 'Off'); },
+  'yt-keys': async () => { S.yt = { ...S.yt, key: $('#yt-key').value.trim(), clientId: $('#yt-cid').value.trim() }; ytToken = ''; await idb.put('kv', S.yt, 'yt'); toast('Saved'); },
   'yt-help': () => { const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false; $('h3', d).textContent = 'Setting up YouTube search and your account'; $('pre', d).textContent = YT_HELP; $('.lyr-src', d).textContent = ''; d.showModal(); $('pre', d).scrollTop = 0; },
   'rad-tag': el => { S.radTag = el.dataset.tag; S.radQ = ''; saveRadioPrefs(); rerender(); },
   'car-on': () => carMode(true), 'car-exit': () => carMode(false),

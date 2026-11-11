@@ -94,11 +94,13 @@ const S = {
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
+  volume: 1, hist: [],
+  fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
 const T = id => S.tracks.get(id) || S.remote.get(id);
 const has = id => S.tracks.has(id) || S.remote.has(id);
-const audio = $('#audio');
+let audio = $('#audio');   // the element currently in charge; see the playback section
 const view = $('#view');
 const current = () => T(S.queue[S.qIndex]);
 const playing = () => !!S.loadedId && !audio.paused;
@@ -321,13 +323,107 @@ addEventListener('drop', async e => {
 
 /* ---------------- playback ---------------- */
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-let unlocked = false, loadToken = 0, curUrl = null, errStreak = 0;
-// Mobile browsers only allow audio started by a tap. Prime the element on the first tap so
+// Three audio elements. A and B take turns, so the next song can be opened ahead of time
+// (gapless) or blended in (crossfade); when sound effects are on, A and B are wired through
+// Web Audio. C is never wired: it plays internet streams, which servers rarely allow to be
+// processed (a wired cross-origin stream plays as silence).
+const elA = audio, elB = new Audio(), elC = new Audio();
+const ELS = [elA, elB, elC];
+elB.preload = elC.preload = 'auto';
+const onAudio = (ev, fn) => ELS.forEach(el => el.addEventListener(ev, e => { if (e.target === audio) fn(e); }));
+Object.defineProperty(window, 'player', { get: () => audio, configurable: true });   // the active element, for debugging
+
+let unlocked = false, loadToken = 0, errStreak = 0;
+let prepared = null, preparing = false, fadingEl = null, logged = false;
+// Mobile browsers only allow audio started by a tap. Prime the elements on the first tap so
 // later plays (which happen after async storage reads, or on auto-advance) are allowed.
 document.addEventListener('click', () => {
   if (unlocked) return; unlocked = true;
-  if (!S.loadedId) { audio.src = SILENCE; audio.play().catch(() => {}); }
+  for (const el of ELS) if (!el.getAttribute('src')) { el.src = SILENCE; el.play().catch(() => {}); }
+  if (wantGraph()) ensureGraph();
 }, true);
+
+// --- sound effects (equalizer, silence skipping) ---
+const EQ_FREQS = [60, 230, 910, 3600, 14000], EQ_LABELS = ['Bass', 'Low mid', 'Mid', 'High mid', 'Treble'];
+const EQ_PRESETS = {
+  Flat: [0, 0, 0, 0, 0], 'Bass boost': [7, 4, 0, 0, 0], 'Treble boost': [0, 0, 0, 3, 6], Rock: [5, 2, -1, 2, 4], Pop: [-1, 2, 4, 2, -1],
+  Jazz: [3, 1, 0, 2, 3], Classical: [4, 2, 0, 1, 3], Dance: [6, 3, 0, 1, 4], 'Spoken word': [-3, 0, 3, 4, 1],
+};
+let ac = null, eqNodes = [], preGain = null, analyser = null;
+const wantGraph = () => S.fx.eq || S.fx.skipSilence;
+function ensureGraph() {
+  if (ac) { ac.resume?.().catch(() => {}); return true; }
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    preGain = ac.createGain();
+    eqNodes = EQ_FREQS.map((f, i) => { const n = ac.createBiquadFilter(); n.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking'; n.frequency.value = f; n.Q.value = 1; return n; });
+    analyser = ac.createAnalyser(); analyser.fftSize = 1024;
+    for (const el of [elA, elB]) ac.createMediaElementSource(el).connect(preGain);
+    [preGain, ...eqNodes, analyser].reduce((a, b) => (a.connect(b), b)).connect(ac.destination);
+    applyEq(); ac.resume?.().catch(() => {});
+    // A stream already playing on a wired element would go silent, so move it to the unwired one.
+    const t = current();
+    if (S.loadedId && t?.url && audio !== elC && !audio._blob) { const at = t.live ? 0 : audio.currentTime, was = !audio.paused; loadCurrent(was, at); }
+    return true;
+  } catch (e) { console.warn('sound effects unavailable', e); ac = null; return false; }
+}
+function applyEq() {
+  if (!ac) return;
+  eqNodes.forEach((n, i) => { n.gain.value = S.fx.eq ? S.fx.bands[i] : 0; });
+  preGain.gain.value = S.fx.eq ? Math.pow(10, -Math.max(0, ...S.fx.bands) / 20) : 1;   // headroom so boosts don't distort
+}
+const saveFx = () => idb.put('kv', S.fx, 'fx').catch(() => {});
+let quietSince = 0, skipping = false;
+setInterval(() => {
+  const t = current();
+  const active = S.fx.skipSilence && ac && audio !== elC && t?.kind === 'episode' && S.loadedId && !audio.paused;
+  if (active) {
+    const buf = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(buf);
+    let sum = 0; for (const v of buf) sum += v * v;
+    if (Math.sqrt(sum / buf.length) < 0.004) quietSince ||= performance.now(); else quietSince = 0;
+  } else quietSince = 0;
+  const want = !!quietSince && performance.now() - quietSince > 450;
+  if (want !== skipping) { skipping = want; audio.playbackRate = want ? 4 : rateFor(t); }
+}, 120);
+
+// --- volume: master × fade × per-song levelling ---
+const rateFor = t => t?.kind === 'episode' ? S.fx.rate : 1;
+function applyVol(el) { el.volume = Math.max(0, Math.min(1, S.volume * (el._fade ?? 1) * (S.fx.level && el._item?.gain ? el._item.gain : 1))); }
+function ramp(el, from, to, secs, done) {
+  clearInterval(el._ramp); const t0 = performance.now();
+  el._ramp = setInterval(() => {
+    const k = Math.min(1, (performance.now() - t0) / (secs * 1000));
+    el._fade = from + (to - from) * k; applyVol(el);
+    if (k >= 1) { clearInterval(el._ramp); el._ramp = null; done?.(); }
+  }, 40);
+}
+function stopEl(el) {
+  clearInterval(el._ramp); el._ramp = null; el._fade = 1;
+  if (fadingEl === el) fadingEl = null;
+  el.pause();
+  if (el._url) { if (el._blob) URL.revokeObjectURL(el._url); el._url = null; el._blob = false; el.removeAttribute('src'); el.load(); }
+}
+function chooseEl(local, avoid) {
+  const c = ac && !local ? [elC] : [elA, elB];
+  if (!avoid && c.includes(audio) && audio !== fadingEl) return audio;
+  return c.find(e => e !== avoid && e !== fadingEl) || c.find(e => e !== avoid) || null;
+}
+// Measure how loud a song is (once), so loud songs can be turned down to match quiet ones.
+async function analyseGain(t) {
+  if (t.gain != null || t.url || t.size > 30e6 || (t.duration || 0) > 720) return;
+  try {
+    const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const pcm = await new Ctx(1, 1, 8000).decodeAudioData(await (await getFile(t.id)).arrayBuffer());
+    const d = pcm.getChannelData(0); let sum = 0, n = 0;
+    for (let i = 0; i < d.length; i += 2) { sum += d[i] * d[i]; n++; }
+    const db = 10 * Math.log10(sum / Math.max(1, n) || 1e-9);
+    t.gain = Math.pow(10, Math.max(-12, Math.min(0, -18 - db)) / 20);
+  } catch (e) { console.warn('volume levelling', e); t.gain = 1; }
+  if (S.tracks.has(t.id)) idb.put('tracks', t);
+  const el = ELS.find(e => e._item === t);
+  if (el && !el._ramp) { const from = el.volume; applyVol(el); const to = el.volume; el.volume = from; smoothVol(el, from, to); }
+}
+function smoothVol(el, from, to) { const t0 = performance.now(); const id = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / 800); if (!el._ramp) el.volume = from + (to - from) * k; if (k >= 1) clearInterval(id); }, 40); }
 
 async function getFile(id) {
   const f = await idb.get('files', id);
@@ -339,25 +435,55 @@ async function getFile(id) {
   }
   return f.getFile();
 }
-
-async function loadCurrent(autoplay = true, startAt = 0) {
-  const t = current(); if (!t) return;
-  const token = ++loadToken;
-  S.resumeAt = 0;
-  syncPlayer(); saveState();
+const sourceFile = t => t.url ? idb.get('files', t.id).catch(() => null) : getFile(t.id);
+function dropPrepared() { if (prepared) { const p = prepared; prepared = null; if (p.el !== audio) stopEl(p.el); } }
+// Open the next song on the idle element a few seconds early, so the hand-over is instant.
+async function prepareNext(ni) {
+  const id = S.queue[ni], t = T(id); if (!t || preparing) return;
+  preparing = true;
   try {
-    const file = t.url ? await idb.get('files', t.id).catch(() => null) : await getFile(t.id);
-    if (token !== loadToken) return;
-    if (curUrl && curUrl.startsWith('blob:')) URL.revokeObjectURL(curUrl);
-    if (t.url && !file && !navigator.onLine) { S.loadedId = null; syncPlayer(); return toast('You are offline — this needs the internet'); }
-    curUrl = file ? URL.createObjectURL(file) : t.url;
+    const file = await sourceFile(t);
+    if (S.queue[nextIndex()] !== id || prepared || (!file && !navigator.onLine)) return;
+    const el = chooseEl(!!file, audio);
+    if (!el || el === audio || el === fadingEl) return;
+    stopEl(el);
+    el._item = t; el._blob = !!file; el._url = file ? URL.createObjectURL(file) : t.url;
+    el.src = el._url; el.load();
+    prepared = { id, el };
+  } catch { /* fall back to a normal load */ } finally { preparing = false; }
+}
+const nextIndex = () => S.qIndex < S.queue.length - 1 ? S.qIndex + 1 : S.repeat === 'all' && S.queue.length > 1 ? 0 : -1;
+
+// fade > 0 blends the new song in over that many seconds while the old one fades out.
+async function loadCurrent(autoplay = true, startAt = 0, fade = 0) {
+  const t = current(); if (!t) return;
+  const token = ++loadToken, old = audio;
+  S.resumeAt = 0; logged = false;
+  syncPlayer(); saveState();
+  let el = null;
+  try {
+    if (prepared?.id === t.id) { el = prepared.el; prepared = null; }
+    else {
+      dropPrepared();
+      const file = await sourceFile(t);
+      if (token !== loadToken) return;
+      if (t.url && !file && !navigator.onLine) { S.loadedId = null; stopEl(old); syncPlayer(); return toast('You are offline — this needs the internet'); }
+      el = chooseEl(!!file, null) || elA;
+      stopEl(el);
+      el._item = t; el._blob = !!file; el._url = file ? URL.createObjectURL(file) : t.url;
+      el.src = el._url;
+    }
+    if (el !== old) { if (fade && S.loadedId && !old.paused) { fadingEl = old; ramp(old, old._fade ?? 1, 0, fade, () => stopEl(old)); } else stopEl(old); }
+    audio = el; el._fade = fade ? 0 : 1; applyVol(el);
     if (!startAt && t.kind === 'episode' && S.epos[t.id] > 5) startAt = S.epos[t.id];
     S.loadedId = t.id;
-    audio.src = curUrl;
-    if (startAt) audio.addEventListener('loadedmetadata', () => { audio.currentTime = startAt; }, { once: true });
-    if (autoplay) await audio.play();
+    el.defaultPlaybackRate = el.playbackRate = rateFor(t);
+    if (startAt) { if (el.readyState >= 1) el.currentTime = startAt; else el.addEventListener('loadedmetadata', () => { el.currentTime = startAt; }, { once: true }); }
+    syncPlayer();
+    if (autoplay) { ac?.resume?.().catch(() => {}); await el.play(); if (fade) ramp(el, 0, 1, fade); }
     errStreak = 0;
   } catch (e) {
+    if (el) { clearInterval(el._ramp); el._ramp = null; el._fade = 1; applyVol(el); }
     if (token !== loadToken || e?.name === 'AbortError') return;
     if (e?.name === 'NotAllowedError') { toast(t.linked ? 'Reconnect your music folder to play' : 'Tap play to start'); syncPlayer(); return; }
     playbackFailed(t);
@@ -369,7 +495,7 @@ function playbackFailed(t) {
   if (++errStreak < 4 && S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(true); } else syncPlayer();
 }
 // State checks (audio.error / audio.ended) ignore stale events left over from the priming clip.
-audio.addEventListener('error', () => { const t = current(); if (S.loadedId && t && audio.error) playbackFailed(t); });
+onAudio('error', () => { const t = current(); if (S.loadedId && t && audio.error) playbackFailed(t); });
 
 function playContext(ids, i = 0) {
   ids = ids.filter(has); if (!ids.length) return;
@@ -386,7 +512,7 @@ function toggle() {
     else if (S.tracks.size) playContext(allSongIds(), 0);
     return;
   }
-  audio.paused ? audio.play().catch(() => {}) : audio.pause();
+  if (audio.paused) { ac?.resume?.().catch(() => {}); audio.play().catch(() => {}); } else audio.pause();
 }
 function next(auto = false) {
   if (auto && S.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
@@ -399,23 +525,24 @@ function prev() {
   if (audio.currentTime > 3 || S.qIndex === 0) { audio.currentTime = 0; return; }
   S.qIndex--; loadCurrent(true);
 }
+function seekBy(secs) { if (S.loadedId && isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration - 1, audio.currentTime + secs)); }
 function toggleShuffle() {
   S.shuffle = !S.shuffle;
   const cur = S.queue[S.qIndex];
   if (S.shuffle) S.queue = [...S.queue.slice(0, S.qIndex + 1), ...shuffleArr(S.queue.slice(S.qIndex + 1))];
   else if (S.baseQueue) { const i = S.baseQueue.indexOf(cur); if (i >= 0) { S.queue = [...S.baseQueue]; S.qIndex = i; } }
-  syncPlayer(); saveState(); if (page() === 'queue') route();
+  dropPrepared(); syncPlayer(); saveState(); if (page() === 'queue') route();
 }
 function cycleRepeat() { S.repeat = { off: 'all', all: 'one', one: 'off' }[S.repeat]; syncPlayer(); saveState(); }
 function enqueue(ids, nextUp) {
   ids = ids.filter(has); if (!ids.length) return;
   if (!S.queue.length) { S.queue = [...ids]; S.qIndex = 0; S.baseQueue = [...ids]; loadCurrent(false); }
-  else if (nextUp) S.queue.splice(S.qIndex + 1, 0, ...ids);
+  else if (nextUp) { S.queue.splice(S.qIndex + 1, 0, ...ids); dropPrepared(); }
   else S.queue.push(...ids);
   toast(nextUp ? 'Playing next' : 'Added to queue'); saveState(); if (page() === 'queue') route();
 }
 
-audio.addEventListener('ended', () => {
+onAudio('ended', () => {
   if (!S.loadedId || !audio.ended) return;
   if (current()?.kind === 'episode') { delete S.epos[current().id]; idb.put('kv', S.epos, 'epos').catch(() => {}); }
   if (sleepEOT) {
@@ -426,15 +553,16 @@ audio.addEventListener('ended', () => {
   next(true);
 });
 let countedLoad = 0;
-audio.addEventListener('play', () => {
+onAudio('play', () => {
   const t = current();
   if (S.loadedId && t && !t.url && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
     if (onlineOK() && !coverJob && !S.artUrls.has(t.artId) && !coverTried.has(t.artId)) findCoverOnline(t).catch(e => console.warn('cover lookup', e));
+    if (S.fx.level && t.gain == null) setTimeout(() => analyseGain(t), 1500);
   }
   syncPlayer();
 });
-audio.addEventListener('pause', syncPlayer);
-audio.addEventListener('loadedmetadata', () => {
+onAudio('pause', () => { if (fadingEl) stopEl(fadingEl); syncPlayer(); });
+onAudio('loadedmetadata', () => {
   const t = current();
   if (S.loadedId && t && isFinite(audio.duration) && Math.abs((t.duration || 0) - audio.duration) > 1) {
     t.duration = audio.duration; if (!t.url) idb.put('tracks', t);
@@ -456,12 +584,32 @@ function syncTime() {
     try { navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: audio.playbackRate || 1 }); } catch {}
   }
 }
-audio.addEventListener('timeupdate', () => {
+// Near the end of a song: open the next one early (gapless) and, if set, blend into it (crossfade).
+function maybeTransition() {
+  const t = current(), d = audio.duration, x = S.fx.xfade;
+  if (!t || t.live || t.kind === 'episode' || !isFinite(d) || audio.paused || !(S.fx.gapless || x > 0) || S.repeat === 'one' || sleepEOT) return;
+  const ni = nextIndex(), nt = ni < 0 ? null : T(S.queue[ni]);
+  if (!nt || nt.live || nt.kind === 'episode') return;
+  const left = d - audio.currentTime;
+  if (left < x + 8 && !prepared) prepareNext(ni);
+  if (x > 0 && d > x * 3 && left <= x && prepared?.id === nt.id) { S.qIndex = ni; loadCurrent(true, 0, x); }
+}
+onAudio('timeupdate', () => {
   if (!S.loadedId) return;
   syncTime();
+  const t = current();
+  if (t && !logged && !t.live && audio.currentTime >= Math.min(30, (audio.duration || 60) / 2)) { logged = true; logPlay(t); }
   if (sleepAt && Date.now() >= sleepAt) { audio.pause(); setSleep(0, true); toast('Sleep timer ended'); }
+  maybeTransition();
   if (Date.now() - lastSave > 5000) saveState();
 });
+// Listening history, for the stats page.
+let histTimer;
+function logPlay(t) {
+  S.hist.push({ a: Date.now(), i: t.id, t: t.title, r: t.artist || '', d: Math.round(t.duration || audio.duration || 0), k: t.kind || 'song' });
+  if (S.hist.length > 30000) S.hist.splice(0, S.hist.length - 30000);
+  clearTimeout(histTimer); histTimer = setTimeout(() => idb.put('kv', S.hist, 'hist').catch(() => {}), 1000);
+}
 $$('.seek').forEach(s => {
   s.addEventListener('input', () => { seeking = true; s.style.setProperty('--p', s.value / 10 + '%'); });
   s.addEventListener('change', () => {
@@ -472,11 +620,12 @@ $$('.seek').forEach(s => {
   });
 });
 const vol = $('#vol');
-vol.addEventListener('input', () => { audio.volume = +vol.value; vol.style.setProperty('--p', vol.value * 100 + '%'); saveState(); });
+vol.addEventListener('input', () => { S.volume = +vol.value; ELS.forEach(applyVol); vol.style.setProperty('--p', vol.value * 100 + '%'); saveState(); });
 
 function syncPlayer() {
   const t = current(), on = playing();
   $('#player').classList.toggle('idle', !t);
+  document.body.classList.toggle('pod', t?.kind === 'episode');
   $('#p-title').textContent = t ? t.title : 'Nothing playing';
   $('#p-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   $('#np-title').textContent = t ? t.title : '';
@@ -521,7 +670,7 @@ function saveState() {
   saveTimer = setTimeout(() => idb.put('kv', {
     remote: [...new Set(S.queue)].filter(id => S.remote.has(id)).map(id => S.remote.get(id)),
     queue: S.queue, qIndex: S.qIndex, baseQueue: S.baseQueue, shuffle: S.shuffle, repeat: S.repeat,
-    volume: audio.volume, position: S.loadedId ? audio.currentTime : S.resumeAt, sort: S.sort,
+    volume: S.volume, position: S.loadedId ? audio.currentTime : S.resumeAt, sort: S.sort,
   }, 'state').catch(() => {}), 300);
 }
 addEventListener('pagehide', saveState);
@@ -575,6 +724,7 @@ function trackMenu(t, ev, ctx = {}) {
     t.album && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/album/${encodeURIComponent(t.albumKey)}`; } },
     { label: 'Go to artist', icon: 'user', fn: () => { closeNP(); location.hash = `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`; } },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
+    ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => { closeNP(); location.hash = '#/settings'; } },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
     !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
       if (!navigator.onLine) return toast('Connect to the internet to look up covers');
@@ -1032,6 +1182,7 @@ function remoteMenu(t, ev, ctx = {}) {
     ia && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/archive/${encodeURIComponent(t.iaId)}`; } },
     t.kind === 'station' && { label: t.liked ? 'Remove from favourite stations' : 'Add to favourite stations', icon: 'heart', fn: () => toggleStation(t) },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
+    ctx.np && ep && { label: `Playback speed: ${S.fx.rate}×`, icon: 'clock', fn: () => openMenu([0.75, 1, 1.25, 1.5, 1.75, 2].map(r => ({ label: `${r}×${r === S.fx.rate ? '  ✓' : ''}`, fn: () => setRate(r) })), null, 'Podcast speed') },
     ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); rerender(); } },
   ], ev, `${t.title} · ${t.artist}`);
 }
@@ -1042,6 +1193,41 @@ view.addEventListener('submit', e => {
   if (f.dataset.form === 'pod') S.podQ = q; else if (f.dataset.form === 'ia') S.iaQ = q; else S.radQ = q;
   route();
 });
+
+/* ---------------- sound settings ---------------- */
+const dB = v => `${v > 0 ? '+' : ''}${v} dB`;
+const onOff = (key, label, tip) => `<button class="btn ${S.fx[key] ? 'primary' : ''}" data-act="fx-toggle" data-key="${key}" aria-label="${tip}">${label}: ${S.fx[key] ? 'On' : 'Off'}</button>`;
+function setRate(r) { S.fx.rate = r; if (current()?.kind === 'episode') audio.defaultPlaybackRate = audio.playbackRate = r; saveFx(); toast(`Podcast speed ${r}×`); if (page() === 'settings') rerender(); }
+function soundSettings() {
+  const x = S.fx.xfade;
+  return `<div class="settings-block"><h2>Sound</h2>
+    <div class="hero-actions">${onOff('eq', 'Equalizer', 'Shape the bass, mids and treble of your music')}
+      <select data-fx="preset" aria-label="Equalizer preset">${S.fx.preset === 'Custom' ? '<option selected>Custom</option>' : ''}${Object.keys(EQ_PRESETS).map(p => `<option ${p === S.fx.preset ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+    <div class="eq">${EQ_LABELS.map((l, i) => `<label><span>${l}</span><input type="range" min="-12" max="12" step="1" value="${S.fx.bands[i]}" data-fx="band" data-i="${i}" style="--p:${(S.fx.bands[i] + 12) / 24 * 100}%" aria-label="${l}"><b>${dB(S.fx.bands[i])}</b></label>`).join('')}</div>
+    <p>The equalizer works on your own music files and downloads. Radio and streamed podcasts play unchanged.</p>
+    <div class="eq"><label><span>Crossfade</span><input type="range" min="0" max="12" step="1" value="${x}" data-fx="xfade" style="--p:${x / 12 * 100}%" aria-label="Seconds of overlap between songs"><b>${x ? x + ' s' : 'Off'}</b></label></div>
+    <div class="hero-actions">${onOff('gapless', 'Gapless playback', 'Open the next song early so there is no pause between songs')}${onOff('level', 'Even out volume', 'Turn loud songs down so songs play at a similar volume')}</div>
+    <h2 style="margin-top:22px">Podcasts</h2>
+    <div class="hero-actions"><select data-fx="rate" aria-label="Podcast speed">${[0.75, 1, 1.25, 1.5, 1.75, 2].map(r => `<option value="${r}" ${r === S.fx.rate ? 'selected' : ''}>Speed ${r}×</option>`).join('')}</select>${onOff('skipSilence', 'Skip silences', 'Speed through silent gaps in downloaded episodes')}</div>
+    <p>Skipping silences works on downloaded episodes.</p></div>`;
+}
+view.addEventListener('input', e => {
+  const el = e.target.closest('[data-fx]'); if (!el) return;
+  const k = el.dataset.fx;
+  if (k === 'band') {
+    S.fx.bands[+el.dataset.i] = +el.value; S.fx.preset = 'Custom'; S.fx.eq = true;
+    el.nextElementSibling.textContent = dB(+el.value); el.style.setProperty('--p', (+el.value + 12) / 24 * 100 + '%');
+    ensureGraph(); applyEq();
+  } else if (k === 'xfade') {
+    S.fx.xfade = +el.value; el.nextElementSibling.textContent = S.fx.xfade ? S.fx.xfade + ' s' : 'Off'; el.style.setProperty('--p', S.fx.xfade / 12 * 100 + '%');
+    if (!S.fx.xfade && !S.fx.gapless) dropPrepared();
+  } else if (k === 'preset') {
+    if (!EQ_PRESETS[el.value]) return;
+    S.fx.bands = [...EQ_PRESETS[el.value]]; S.fx.preset = el.value; S.fx.eq = true; ensureGraph(); applyEq(); rerender();
+  } else if (k === 'rate') return setRate(+el.value);
+  saveFx();
+});
+view.addEventListener('change', e => { if (e.target.closest('[data-fx=band]')) rerender(); });
 
 /* ---------------- views ---------------- */
 function rowHTML(t, i, ctx) {
@@ -1212,6 +1398,7 @@ const VIEWS = {
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
         <button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div>`,
+      soundSettings(),
       `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
@@ -1302,6 +1489,15 @@ const A = {
     await idb.put('kv', S.pods, 'pods'); toast(on ? 'Unfollowed' : 'Following — find it under Podcasts'); rerender();
   },
   'edit-lookup': lookupInfo,
+  'back15': () => seekBy(-15), 'fwd30': () => seekBy(30),
+  'fx-toggle': el => {
+    const k = el.dataset.key; S.fx[k] = !S.fx[k];
+    if (wantGraph()) ensureGraph();
+    applyEq();
+    if (k === 'level') { ELS.forEach(applyVol); const t = current(); if (S.fx.level && t && !t.url) analyseGain(t); }
+    if (k === 'gapless' && !S.fx.gapless && !S.fx.xfade) dropPrepared();
+    saveFx(); rerender();
+  },
   'ia-set': el => { S.iaSet = el.dataset.set; rerender(); },
   'save-album': async () => {
     const al = S.curAlbum; if (!al) return;
@@ -1410,6 +1606,8 @@ async function boot() {
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
   S.ia = await idb.get('kv', 'iaSaved') || [];
+  S.hist = await idb.get('kv', 'hist') || [];
+  { const fx = await idb.get('kv', 'fx'); if (fx) S.fx = { ...S.fx, ...fx, bands: Array.isArray(fx.bands) && fx.bands.length === 5 ? fx.bands : S.fx.bands }; }
   for (const x of state?.remote || []) reg(x);
   for (const x of Object.values(S.dl)) reg(x);
   for (const x of S.stations) reg(x);
@@ -1423,9 +1621,9 @@ async function boot() {
     S.baseQueue = state.baseQueue?.filter(has) || null;
     S.shuffle = !!state.shuffle; S.repeat = state.repeat || 'off'; S.sort = state.sort || 'title';
     S.resumeAt = S.queue[S.qIndex] === (state.queue || [])[state.qIndex] ? state.position || 0 : 0;
-    if (state.volume != null) audio.volume = state.volume;
+    if (state.volume != null) S.volume = state.volume;
   }
-  vol.value = audio.volume; vol.style.setProperty('--p', audio.volume * 100 + '%');
+  vol.value = S.volume; vol.style.setProperty('--p', S.volume * 100 + '%'); ELS.forEach(applyVol);
   rebuild(); renderSidePlaylists(); syncPlayer();
   lastHash = location.hash; route();
   checkFolderAccess();

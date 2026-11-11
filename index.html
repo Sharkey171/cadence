@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 <div id="app">
@@ -116,7 +116,7 @@
 </section>
 
 <aside id="yt" hidden>
-  <div class="yt-bar"><span id="yt-title"></span><button class="icon-btn" data-act="yt-close" data-ic="x" aria-label="Close the YouTube player"></button></div>
+  <div class="yt-bar"><span id="yt-title"></span><a id="yt-open" class="icon-btn" data-act="yt-out" data-ic="out" target="_blank" rel="noopener" aria-label="Open in YouTube Music, where your Premium applies"></a><button class="icon-btn" data-act="yt-close" data-ic="x" aria-label="Close the YouTube player"></button></div>
   <div class="yt-box"><div id="yt-frame"></div></div>
 </aside>
 
@@ -200,6 +200,6 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=14"></script>
+<script type="module" src="app.js?v=15"></script>
 </body>
 </html>

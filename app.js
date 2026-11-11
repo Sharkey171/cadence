@@ -56,6 +56,7 @@ const ICONS = {
   spark: stroke('<path d="M12 3l2.200 5.800L20 11l-5.800 2.200L12 19l-2.200-5.800L4 11l5.800-2.200z"/>'),
   car: stroke('<path d="M4 16v-3l2-5.500A2 2 0 0 1 7.900 6h8.200a2 2 0 0 1 1.900 1.500L20 13v3M4 16h16M4 16v2.500M20 16v2.500M3.500 12.500h17"/><circle cx="7.500" cy="14.500" r="1"/><circle cx="16.500" cy="14.500" r="1"/>'),
   chart: stroke('<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>'),
+  out: stroke('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
   yt: stroke('<rect x="2.500" y="5" width="19" height="14" rx="4"/><path d="M10 9.500v5l4.500-2.500z" fill="currentColor"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
@@ -1400,11 +1401,12 @@ async function ytStart(items, i) {
   const it = items[i]; if (!it) return;
   if (S.loadedId && !audio.paused) pauseNow();
   $('#yt').hidden = false; $('#yt-title').textContent = it.title || 'YouTube';
+  $('#yt-open').href = it.list ? `https://music.youtube.com/playlist?list=${encodeURIComponent(it.list)}` : `https://music.youtube.com/watch?v=${encodeURIComponent(it.id)}`;
   if (!ytPlayer) {
     ytPlayer = new YT.Player('yt-frame', {
       host: S.yt.signedIn ? 'https://www.youtube.com' : 'https://www.youtube-nocookie.com', width: '100%', height: '100%', videoId: it.list ? undefined : it.id,
-      playerVars: it.list ? { listType: 'playlist', list: it.list, autoplay: 1, playsinline: 1 } : { autoplay: 1, playsinline: 1, rel: 0 },
-      events: { onReady: () => { ytPlayerReady = true; if (ytPending) { const p = ytPending; ytPending = null; ytLoad(p); } }, onStateChange: ytState, onError: () => { toast("That video can't be played outside YouTube"); ytNext(); } },
+      playerVars: it.list ? { listType: 'playlist', list: it.list, autoplay: 1, playsinline: 1, origin: location.origin } : { autoplay: 1, playsinline: 1, rel: 0, origin: location.origin },
+      events: { onReady: () => { ytPlayerReady = true; if (ytPending) { const p = ytPending; ytPending = null; ytLoad(p); } }, onStateChange: ytState, onError: e => { toast([101, 150, 153].includes(e?.data) ? "The owner doesn't allow this one to play inside other apps. Use the arrow to open it in YouTube Music." : "YouTube couldn't play that one. Use the arrow to open it in YouTube Music."); if (S.ytIdx < S.ytList.length - 1) ytNext(); } },
     });
   } else if (ytPlayerReady) ytLoad(it); else ytPending = it;
   ytMark();
@@ -2024,6 +2026,7 @@ const A = {
     S.ytSaved = ytSavedHas(v.id) ? S.ytSaved.filter(x => x.id !== v.id) : [...S.ytSaved, { ...v }];
     await idb.put('kv', S.ytSaved, 'ytSaved'); toast(ytSavedHas(v.id) ? 'Saved' : 'Removed from saved'); rerender();
   },
+  'yt-out': () => { try { ytPlayer?.pauseVideo?.(); } catch {} },
   'yt-close': ytClose, 'yt-connect': ytConnect,
   'yt-open-pl': el => ytOpenPlaylist(el.dataset.id, el.dataset.name),
   'yt-signin': async () => { S.yt.signedIn = !S.yt.signedIn; await idb.put('kv', S.yt, 'yt'); ytReset(); rerender(); toast(S.yt.signedIn ? 'On. Sign in to youtube.com in this browser for it to take effect.' : 'Off'); },

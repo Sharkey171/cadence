@@ -19,18 +19,18 @@
   <aside id="sidebar">
     <div class="brand"><img src="icons/icon-192.png" alt=""><span>Cadence</span></div>
     <nav class="nav">
-      <a href="#/home" data-nav="home" data-ic="home">Home</a>
-      <a href="#/search" data-nav="search" data-ic="search">Search</a>
-      <a href="#/library/songs" data-nav="library" data-ic="library">Library</a>
-      <a href="#/liked" data-nav="liked" data-ic="heart">Liked songs</a>
+      <a href="#/home" data-nav="home" aria-label="Home: recent and most played" data-ic="home">Home</a>
+      <a href="#/search" data-nav="search" aria-label="Search your library" data-ic="search">Search</a>
+      <a href="#/library/songs" data-nav="library" aria-label="Library: all songs, albums and artists" data-ic="library">Library</a>
+      <a href="#/liked" data-nav="liked" aria-label="Songs you have liked" data-ic="heart">Liked songs</a>
     </nav>
     <div class="side-head"><span>Playlists</span>
-      <button class="icon-btn" data-act="new-playlist" data-ic="plus" title="New playlist" aria-label="New playlist"></button>
+      <button class="icon-btn" data-act="new-playlist" data-ic="plus" aria-label="New playlist"></button>
     </div>
     <div id="side-playlists"></div>
     <div class="side-foot">
-      <button class="btn primary" data-act="add-music" data-ic="plus">Add music</button>
-      <a href="#/settings" data-nav="settings" data-ic="settings">Settings</a>
+      <button class="btn primary" data-act="add-music" data-ic="plus" aria-label="Add music files or a folder">Add music</button>
+      <a href="#/settings" data-nav="settings" aria-label="Settings, storage and backup" data-ic="settings">Settings</a>
     </div>
   </aside>
 
@@ -47,7 +47,7 @@
   <footer id="player">
     <div id="mini-progress"><i></i></div>
     <div class="p-info">
-      <div class="p-left" data-act="open-np">
+      <div class="p-left" data-act="open-np" aria-label="Open the now playing screen">
         <div id="p-art" class="art"></div>
         <div class="p-meta"><div id="p-title">Nothing playing</div><div id="p-artist"></div></div>
       </div>
@@ -56,15 +56,15 @@
     <div class="p-center">
       <div class="ctrls">
         <button class="icon-btn b-shuffle" data-act="shuffle" data-ic="shuffle" aria-label="Shuffle"></button>
-        <button class="icon-btn" data-act="prev" data-ic="prev" aria-label="Previous"></button>
+        <button class="icon-btn" data-act="prev" data-ic="prev" aria-label="Previous song"></button>
         <button class="pp" data-act="toggle" aria-label="Play or pause"></button>
-        <button class="icon-btn" data-act="next" data-ic="next" aria-label="Next"></button>
+        <button class="icon-btn" data-act="next" data-ic="next" aria-label="Next song"></button>
         <button class="icon-btn b-repeat" data-act="repeat" data-ic="repeat" aria-label="Repeat"></button>
       </div>
-      <div class="seekrow"><span class="t-cur">0:00</span><input class="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span class="t-dur">0:00</span></div>
+      <div class="seekrow"><span class="t-cur">0:00</span><input class="seek" type="range" min="0" max="1000" value="0" aria-label="Drag to move through the song"><span class="t-dur">0:00</span></div>
     </div>
     <div class="p-right">
-      <a class="icon-btn" href="#/queue" data-ic="queue" title="Queue" aria-label="Queue"></a>
+      <a class="icon-btn" href="#/queue" data-ic="queue" aria-label="Queue: what plays next"></a>
       <span class="vol-ic" data-ic="volume"></span>
       <input id="vol" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume">
     </div>
@@ -72,19 +72,19 @@
   </footer>
 
   <nav id="tabs">
-    <a href="#/home" data-nav="home" data-ic="home"><span>Home</span></a>
-    <a href="#/search" data-nav="search" data-ic="search"><span>Search</span></a>
-    <a href="#/library/songs" data-nav="library" data-ic="library"><span>Library</span></a>
-    <a href="#/playlists" data-nav="playlists" data-ic="list"><span>Playlists</span></a>
+    <a href="#/home" data-nav="home" aria-label="Home: recent and most played" data-ic="home"><span>Home</span></a>
+    <a href="#/search" data-nav="search" aria-label="Search your library" data-ic="search"><span>Search</span></a>
+    <a href="#/library/songs" data-nav="library" aria-label="Library: all songs, albums and artists" data-ic="library"><span>Library</span></a>
+    <a href="#/playlists" data-nav="playlists" aria-label="Your playlists" data-ic="list"><span>Playlists</span></a>
   </nav>
 </div>
 
 <section id="np" hidden>
   <div id="np-bg"></div>
   <header>
-    <button class="icon-btn" data-act="close-np" data-ic="down" aria-label="Close"></button>
+    <button class="icon-btn" data-act="close-np" data-ic="down" aria-label="Close now playing"></button>
     <span>Now playing</span>
-    <button class="icon-btn" data-act="np-menu" data-ic="dots" aria-label="More"></button>
+    <button class="icon-btn" data-act="np-menu" data-ic="dots" aria-label="More options and sleep timer"></button>
   </header>
   <div id="np-art" class="art"></div>
   <div class="np-meta">
@@ -92,14 +92,14 @@
     <button class="icon-btn like cur-like" data-act="like-current" data-ic="heart" aria-label="Like"></button>
   </div>
   <div class="np-seek">
-    <input class="seek" type="range" min="0" max="1000" value="0" aria-label="Seek">
+    <input class="seek" type="range" min="0" max="1000" value="0" aria-label="Drag to move through the song">
     <div class="times"><span class="t-cur">0:00</span><span class="t-dur">0:00</span></div>
   </div>
   <div class="ctrls big">
     <button class="icon-btn b-shuffle" data-act="shuffle" data-ic="shuffle" aria-label="Shuffle"></button>
-    <button class="icon-btn" data-act="prev" data-ic="prev" aria-label="Previous"></button>
+    <button class="icon-btn" data-act="prev" data-ic="prev" aria-label="Previous song"></button>
     <button class="pp" data-act="toggle" aria-label="Play or pause"></button>
-    <button class="icon-btn" data-act="next" data-ic="next" aria-label="Next"></button>
+    <button class="icon-btn" data-act="next" data-ic="next" aria-label="Next song"></button>
     <button class="icon-btn b-repeat" data-act="repeat" data-ic="repeat" aria-label="Repeat"></button>
   </div>
   <div class="np-foot"><a class="btn" href="#/queue" data-act="close-np" data-ic="queue">Queue</a></div>

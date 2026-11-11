@@ -471,10 +471,10 @@ function syncPlayer() {
   setArt($('#p-art'), t); setArt($('#np-art'), t);
   const u = t && S.artUrls.get(t.artId);
   $('#np-bg').style.backgroundImage = u ? `url('${u}')` : 'none';
-  $$('.pp').forEach(b => b.innerHTML = ic(on ? 'pause' : 'play'));
-  $$('.b-shuffle').forEach(b => b.classList.toggle('on', S.shuffle));
-  $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); });
-  $$('.cur-like').forEach(b => b.classList.toggle('on', !!t?.liked));
+  $$('.pp').forEach(b => { b.innerHTML = ic(on ? 'pause' : 'play'); b.setAttribute('aria-label', on ? 'Pause' : 'Play'); });
+  $$('.b-shuffle').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-label', S.shuffle ? 'Shuffle is on' : 'Shuffle is off'); });
+  $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
+  $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
   document.title = t && on ? `${t.title} · ${t.artist || 'Cadence'}` : 'Cadence';
   markPlaying(); syncTime();
   if ('mediaSession' in navigator) {
@@ -514,7 +514,7 @@ addEventListener('pagehide', saveState);
 async function toggleLike(id) {
   const t = S.tracks.get(id); if (!t) return;
   t.liked = t.liked ? 0 : Date.now(); await idb.put('tracks', t);
-  $$(`.row[data-id="${id}"] .like`).forEach(b => b.classList.toggle('on', !!t.liked));
+  $$(`.row[data-id="${id}"] .like`).forEach(b => { b.classList.toggle('on', !!t.liked); b.setAttribute('aria-label', t.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
   syncPlayer(); if (page() === 'liked') route();
 }
 async function newPlaylist(withIds = []) {
@@ -688,9 +688,9 @@ function rowHTML(t, i, ctx) {
     ${lead}
     <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.artist || 'Unknown artist')}</div></div>
     <div class="row-album">${esc(t.album || '')}</div>
-    <button class="icon-btn like ${t.liked ? 'on' : ''}" data-act="like" aria-label="Like">${ic('heart')}</button>
+    <button class="icon-btn like ${t.liked ? 'on' : ''}" data-act="like" aria-label="${t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
     <div class="row-dur">${fmt(t.duration)}</div>
-    <button class="icon-btn" data-act="row-menu" aria-label="More options">${ic('dots')}</button>
+    <button class="icon-btn" data-act="row-menu" aria-label="More options for this song">${ic('dots')}</button>
   </div>`;
 }
 function trackList(ids, ctx = {}) {
@@ -763,7 +763,7 @@ const VIEWS = {
     viewIds = al.tracks.map(t => t.id);
     setView(`<div class="hero">${artDiv(al.artId, al.name, '', 'disc')}<div class="hero-text"><div class="kind">Album</div><h1>${esc(al.name)}</h1>
       <div class="muted"><a href="#/artist/${encodeURIComponent(norm(al.artist))}">${esc(al.artist)}</a>${al.year ? ' · ' + al.year : ''} · ${total(al.tracks)}</div>
-      ${heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More">${ic('dots')}</button>`)}</div></div>`, trackList(viewIds, { numbered: true }));
+      ${heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`)}</div></div>`, trackList(viewIds, { numbered: true }));
   },
   artist(key) {
     const ar = S.artists.get(key); if (!ar) return setView('<div class="empty">Artist not found.</div>');
@@ -792,14 +792,14 @@ const VIEWS = {
     viewIds = p.trackIds.filter(i => S.tracks.has(i));
     const ts = viewIds.map(i => S.tracks.get(i));
     setView(`<div class="hero">${artDiv(ts[0]?.artId, p.name, '', 'list')}<div class="hero-text"><div class="kind">Playlist</div><h1>${esc(p.name)}</h1>
-      <div class="muted">${total(ts)}</div>${heroActions(`<button class="icon-btn" data-act="playlist-menu" data-id="${p.id}" aria-label="More">${ic('dots')}</button>`)}</div></div>`,
+      <div class="muted">${total(ts)}</div>${heroActions(`<button class="icon-btn" data-act="playlist-menu" data-id="${p.id}" aria-label="Playlist options">${ic('dots')}</button>`)}</div></div>`,
       ts.length ? trackList(viewIds, { playlistId: p.id }) : '<div class="empty">This playlist is empty. Use the ⋯ menu on any song to add it.</div>');
   },
   mix(kind) {
     const m = MIXES[kind]; if (!m) return setView('<div class="empty">Not found.</div>');
     viewIds = m.ids();
     setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="hero-text"><div class="kind">Automatic playlist</div><h1>${m.name}</h1>
-      <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More">${ic('dots')}</button>`) : ''}</div></div>`,
+      <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`) : ''}</div></div>`,
       viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
   search() {
@@ -960,6 +960,30 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowLeft' && S.loadedId) audio.currentTime = Math.max(0, audio.currentTime - 5);
   else if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
 });
+
+/* ---------------- hover tooltips (mouse only) ---------------- */
+const tip = document.createElement('div'); tip.id = 'tip'; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
+let tipEl = null, tipTimer = null;
+function hideTip() { clearTimeout(tipTimer); tip.classList.remove('show'); }
+function showTip(el) {
+  const text = el.isConnected && el.getAttribute('aria-label'); if (!text) return;
+  tip.textContent = text; tip.classList.add('show');
+  const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+  const top = r.top - t.height - 8 < 4 ? r.bottom + 8 : r.top - t.height - 8;
+  tip.style.top = top + 'px';
+  tip.style.left = Math.max(4, Math.min(innerWidth - t.width - 4, r.left + r.width / 2 - t.width / 2)) + 'px';
+}
+if (matchMedia('(hover: hover)').matches) {
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest?.('[aria-label]:not(input[type=search]):not(select)') || null;
+    if (el === tipEl) return;
+    hideTip(); tipEl = el;
+    if (el) tipTimer = setTimeout(() => showTip(el), 350);
+  });
+  document.addEventListener('mousedown', hideTip, true);
+  document.addEventListener('scroll', hideTip, true);
+  document.documentElement.addEventListener('mouseleave', () => { hideTip(); tipEl = null; });
+}
 
 /* ---------------- boot ---------------- */
 async function boot() {

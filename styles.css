@@ -261,3 +261,5 @@ dialog { max-height: 92dvh; overflow-y: auto; }
 .inline-search .searchbox { min-width: 0; }
 .inline-search .btn { flex: none; }
 @media (max-width: 768px) { .inline-search .btn { display: none; } }
+
+button.chip { font: inherit; font-weight: 500; }

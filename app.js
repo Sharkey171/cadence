@@ -93,7 +93,7 @@ const S = {
   artUrls: new Map(), folders: [],
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
-  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '',
+  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
 const T = id => S.tracks.get(id) || S.remote.get(id);
@@ -487,7 +487,7 @@ function syncPlayer() {
   $$('.pp').forEach(b => { b.innerHTML = ic(on ? 'pause' : 'play'); b.setAttribute('aria-label', on ? 'Pause' : 'Play'); });
   $$('.b-shuffle').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-label', S.shuffle ? 'Shuffle is on' : 'Shuffle is off'); });
   $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
-  $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.classList.toggle('nolike', t?.kind === 'episode'); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
+  $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.classList.toggle('nolike', !!t?.url && t.kind !== 'station'); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
   document.title = t && on ? `${t.title} · ${t.artist || 'Cadence'}` : 'Cadence';
   markPlaying(); syncTime();
   if ('mediaSession' in navigator) {
@@ -819,7 +819,7 @@ function reg(item) { S.remote.set(item.id, item); const u = safeUrl(item.art); i
 const CC = (() => { for (const l of navigator.languages || [navigator.language || '']) { const m = /-([A-Za-z]{2})\b/.exec(l); if (m) return m[1].toUpperCase(); } return 'US'; })();
 const offlineNote = what => `<div class="empty">${navigator.onLine ? `Couldn't reach the ${what} directory. Try again in a moment.` : `You're offline. Connect to the internet to browse ${what}.`}</div>`;
 const searchForm = (kind, value, placeholder) => `<form class="inline-search" data-form="${kind}"><label class="searchbox">${ic('search')}<input name="q" type="search" placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" aria-label="${placeholder}"></label><button class="btn">Search</button></form>`;
-const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a></div>`;
+const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a><a class="chip ${tab === 'music' ? 'active' : ''}" href="#/online/music">Free music</a></div>`;
 
 // --- podcasts (Apple's public podcast directory; shows are streamed from their own hosts) ---
 const podFrom = r => ({ id: String(r.collectionId), name: r.collectionName, author: r.artistName, art: r.artworkUrl600 || r.artworkUrl100 });
@@ -867,7 +867,7 @@ function drawPodcast({ pod, eps }) {
     eps.length ? trackList(viewIds) : '<div class="empty">No playable episodes were found for this show.</div>');
 }
 async function podcastsView() {
-  const here = location.hash, dls = Object.values(S.dl);
+  const here = location.hash, dls = Object.values(S.dl).filter(x => x.kind === 'episode');
   viewIds = dls.map(e => e.id);
   setView('<h1>Online</h1>', onlineChips('podcasts'), searchForm('pod', S.podQ, 'Search free podcasts'), '<div id="pod-results"></div>',
     S.pods.length ? `<h2>Your podcasts</h2><div class="grid">${S.pods.map(podCard).join('')}</div>` : '',
@@ -885,18 +885,18 @@ async function podcastsView() {
 async function downloadEp(t) {
   if (S.dl[t.id]) return toast('Already downloaded');
   if (!navigator.onLine) return toast('Connect to the internet to download');
-  toast('Downloading episode…');
+  toast('Downloading…');
   try {
     const r = await fetch(t.url); if (!r.ok) throw new Error('HTTP ' + r.status);
     await idb.put('files', await r.blob(), t.id);
     S.dl[t.id] = t; await idb.put('kv', S.dl, 'dl');
     toast('Downloaded — plays offline now');
-    if (['online', 'podcast'].includes(page())) rerender();
+    if (['online', 'podcast', 'archive'].includes(page())) rerender();
   } catch (e) {
-    toast(e?.name === 'QuotaExceededError' ? 'Storage is full' : "This show doesn't allow downloads into web apps. You can still stream it.");
+    toast(e?.name === 'QuotaExceededError' ? 'Storage is full' : "This one can't be downloaded into a web app. You can still stream it.");
   }
 }
-async function removeDl(t) { await idb.del('files', t.id); delete S.dl[t.id]; await idb.put('kv', S.dl, 'dl'); toast('Download removed'); if (['online', 'podcast'].includes(page())) rerender(); }
+async function removeDl(t) { await idb.del('files', t.id); delete S.dl[t.id]; await idb.put('kv', S.dl, 'dl'); toast('Download removed'); if (['online', 'podcast', 'archive'].includes(page())) rerender(); }
 
 // --- radio (Radio Browser community directory) ---
 const RB = ['de1', 'de2', 'fi1', 'nl1', 'at1'].map(h => `https://${h}.api.radio-browser.info`);
@@ -946,17 +946,91 @@ async function radioView() {
   if (location.hash === here && $('#rad-list')) $('#rad-list').replaceWith(node);
   markPlaying();
 }
+// --- free music (Internet Archive: live concerts, netlabels, old records) ---
+const IA_SETS = [
+  ['live', 'Live concerts', 'collection:etree'],
+  ['netlabels', 'Netlabel albums', 'collection:netlabels'],
+  ['78s', '78rpm records', 'collection:78rpm'],
+  ['all', 'All audio', 'mediatype:(audio OR etree)'],
+];
+const iaMem = new Map(), iaListMem = new Map();
+const iaOne = v => Array.isArray(v) ? v[0] : v;
+const iaCard = a => `<a class="card" href="#/archive/${encodeURIComponent(a.id)}"><div class="art" style="background-image:url('https://archive.org/services/img/${encodeURIComponent(a.id)}')"></div><div class="card-title">${esc(a.name)}</div><div class="card-sub">${esc([a.artist, a.year].filter(Boolean).join(' · '))}</div></a>`;
+async function iaSearch(q, set) {
+  const base = (IA_SETS.find(x => x[0] === set) || IA_SETS[0])[2];
+  const key = set + '|' + q; if (iaListMem.has(key)) return iaListMem.get(key);
+  const words = q.replace(/[()\[\]{}:"\\^~\/]/g, ' ').trim();
+  const run = async query => {
+    const p = new URLSearchParams({ q: query, rows: 48, output: 'json' });
+    for (const f of ['identifier', 'title', 'creator', 'year']) p.append('fl[]', f);
+    p.append('sort[]', q ? 'downloads desc' : 'week desc');
+    const d = await fetchJSON('https://archive.org/advancedsearch.php?' + p);
+    return (d.response?.docs || []).filter(x => x.identifier).map(x => ({ id: x.identifier, name: String(iaOne(x.title) || x.identifier), artist: String(iaOne(x.creator) || ''), year: x.year || '' }));
+  };
+  const scope = `${base} AND mediatype:(audio OR etree)`;
+  // Match the title or artist first; only fall back to descriptions when that finds nothing.
+  let list = words ? await run(`(title:(${words}) OR creator:(${words})) AND ${scope}`) : await run(scope);
+  if (words && !list.length) list = await run(`(${words}) AND ${scope}`);
+  iaListMem.set(key, list); return list;
+}
+const iaSecs = v => { if (!v) return null; const p = String(v).split(':').map(Number); return p.some(isNaN) ? null : p.reduce((a, b) => a * 60 + b, 0); };
+async function loadAlbum(id) {
+  let data = iaMem.get(id) || await idb.get('kv', 'ia:' + id).catch(() => null);
+  if (!data) {
+    const d = await fetchJSON('https://archive.org/metadata/' + encodeURIComponent(id));
+    const m = d.metadata; if (!m) throw new Error('not found');
+    const album = { id, name: String(iaOne(m.title) || id), artist: String(iaOne(m.creator) || ''), year: String(iaOne(m.year) || iaOne(m.date) || '').slice(0, 4) };
+    // One playable version of each track: prefer MP3 (small, plays everywhere), then Ogg, then FLAC.
+    const files = d.files || [];
+    const pick = [/^VBR MP3$/i, /MP3/i, /Ogg Vorbis/i, /^Flac$/i, /^(24bit )?Flac$/i].map(re => files.filter(f => re.test(f.format || '') && !/_sample\./.test(f.name))).find(l => l.length) || [];
+    const tracks = pick.map((f, i) => ({
+      id: `ia:${id}/${f.name}`, kind: 'ia', iaId: id, title: String(f.title || f.name.replace(/\.[^.]+$/, '').split('/').pop()),
+      artist: String(f.creator || album.artist || 'Unknown artist'), album: album.name, trackNo: parseInt(f.track) || i + 1, duration: iaSecs(f.length),
+      url: `https://archive.org/download/${encodeURIComponent(id)}/${f.name.split('/').map(encodeURIComponent).join('/')}`,
+      art: `https://archive.org/services/img/${encodeURIComponent(id)}`, artId: 'r:ia:' + id,
+    })).sort((a, b) => a.trackNo - b.trackNo);
+    if (!tracks.length) throw new Error('no audio');
+    data = { album, tracks };
+    if (S.ia.some(a => a.id === id)) idb.put('kv', data, 'ia:' + id).catch(() => {});
+  }
+  for (const t of data.tracks) reg(S.dl[t.id] || t);
+  iaMem.set(id, data); return data;
+}
+function drawAlbum({ album, tracks }) {
+  viewIds = tracks.map(t => t.id); S.curAlbum = album;
+  const saved = S.ia.some(a => a.id === album.id);
+  setView(`<div class="hero"><div class="art" style="background-image:url('https://archive.org/services/img/${encodeURIComponent(album.id)}')"></div><div class="hero-text"><div class="kind">Internet Archive</div><h1>${esc(album.name)}</h1>
+    <div class="muted">${esc([album.artist, album.year].filter(Boolean).join(' · '))} · ${total(tracks)}</div>
+    ${heroActions(`<button class="btn" data-act="save-album">${ic(saved ? 'check' : 'plus')}${saved ? 'Saved' : 'Save'}</button><button class="icon-btn" data-act="album-dl" aria-label="Download every track for offline">${ic('save')}</button>`)}</div></div>`,
+    trackList(viewIds, { numbered: true }));
+}
+async function archiveView() {
+  const here = location.hash, dls = Object.values(S.dl).filter(x => x.kind === 'ia');
+  viewIds = dls.map(t => t.id);
+  setView('<h1>Online</h1>', onlineChips('music'), searchForm('ia', S.iaQ, 'Search free music and live recordings'),
+    `<div class="chips">${IA_SETS.map(([k, label]) => `<button class="chip ${S.iaSet === k ? 'active' : ''}" data-act="ia-set" data-set="${k}">${label}</button>`).join('')}</div>`,
+    S.ia.length ? `<h2>Saved</h2><div class="grid">${S.ia.map(iaCard).join('')}</div>` : '',
+    dls.length ? '<h2>Downloaded tracks</h2>' : '', dls.length ? trackList(viewIds) : null,
+    `<h2>${S.iaQ ? `Results for “${esc(S.iaQ)}”` : 'Popular this week'}</h2>`, '<div id="ia-list"><p class="muted">Loading…</p></div>',
+    '<p class="muted" style="font-size:13px;margin-top:24px">Free recordings shared on the Internet Archive (archive.org): fan-taped concerts that bands allow, netlabel releases and old records. It is not a catalogue of chart music.</p>');
+  let html;
+  try { const list = await iaSearch(S.iaQ, S.iaSet); html = list.length ? `<div class="grid">${list.map(iaCard).join('')}</div>` : '<div class="empty">Nothing found. Try another search or category.</div>'; }
+  catch { html = offlineNote('free music'); }
+  if (location.hash === here && $('#ia-list')) $('#ia-list').innerHTML = html;
+}
+
 function remoteMenu(t, ev, ctx = {}) {
-  const ep = t.kind === 'episode';
+  const ep = t.kind === 'episode', ia = t.kind === 'ia';
   openMenu([
     { label: 'Play next', icon: 'next', fn: () => enqueue([t.id], true) },
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue([t.id], false) },
-    ep && !S.dl[t.id] && { label: 'Download for offline', icon: 'save', fn: () => downloadEp(t) },
-    ep && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
+    (ep || ia) && !S.dl[t.id] && { label: 'Download for offline', icon: 'save', fn: () => downloadEp(t) },
+    (ep || ia) && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
     ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
     ep && S.epos[t.id] && { label: 'Start from the beginning', icon: 'prev', fn: () => { delete S.epos[t.id]; idb.put('kv', S.epos, 'epos'); if (S.loadedId === t.id) audio.currentTime = 0; else rerender(); } },
     ep && { label: 'Go to podcast', icon: 'mic', fn: () => { closeNP(); location.hash = `#/podcast/${encodeURIComponent(t.podId)}`; } },
-    !ep && { label: t.liked ? 'Remove from favourite stations' : 'Add to favourite stations', icon: 'heart', fn: () => toggleStation(t) },
+    ia && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/archive/${encodeURIComponent(t.iaId)}`; } },
+    t.kind === 'station' && { label: t.liked ? 'Remove from favourite stations' : 'Add to favourite stations', icon: 'heart', fn: () => toggleStation(t) },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
     ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); rerender(); } },
   ], ev, `${t.title} · ${t.artist}`);
@@ -965,7 +1039,7 @@ view.addEventListener('submit', e => {
   const f = e.target.closest('[data-form]'); if (!f) return;
   e.preventDefault();
   const q = f.elements.q.value.trim();
-  if (f.dataset.form === 'pod') S.podQ = q; else S.radQ = q;
+  if (f.dataset.form === 'pod') S.podQ = q; else if (f.dataset.form === 'ia') S.iaQ = q; else S.radQ = q;
   route();
 });
 
@@ -974,9 +1048,9 @@ function rowHTML(t, i, ctx) {
   const lead = ctx.numbered ? `<div class="row-num">${t.trackNo || i + 1}</div>` : `<div class="row-art">${artDiv(t.artId, t.album || t.title)}</div>`;
   return `<div class="row" data-act="play-row" data-i="${i}" data-id="${t.id}">
     ${lead}
-    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.kind === 'episode' ? [t.album, S.dl[t.id] && 'Downloaded', S.epos[t.id] && `Resume at ${fmt(S.epos[t.id])}`].filter(Boolean).join(' · ') : t.artist || 'Unknown artist')}</div></div>
+    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.kind === 'episode' ? [t.album, S.dl[t.id] && 'Downloaded', S.epos[t.id] && `Resume at ${fmt(S.epos[t.id])}`].filter(Boolean).join(' · ') : (t.artist || 'Unknown artist') + (t.kind === 'ia' && S.dl[t.id] ? ' · Downloaded' : ''))}</div></div>
     <div class="row-album">${esc(t.kind === 'episode' ? t.artist : t.album || '')}</div>
-    <button class="icon-btn like ${t.liked ? 'on' : ''} ${t.kind === 'episode' ? 'nolike' : ''}" data-act="like" aria-label="${t.kind === 'station' ? (t.liked ? 'Remove from favourite stations' : 'Add to favourite stations') : t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
+    <button class="icon-btn like ${t.liked ? 'on' : ''} ${t.url && t.kind !== 'station' ? 'nolike' : ''}" data-act="like" aria-label="${t.kind === 'station' ? (t.liked ? 'Remove from favourite stations' : 'Add to favourite stations') : t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
     <div class="row-dur">${t.live ? 'LIVE' : fmt(t.duration)}</div>
     <button class="icon-btn" data-act="row-menu" aria-label="More options for this song">${ic('dots')}</button>
   </div>`;
@@ -1090,7 +1164,14 @@ const VIEWS = {
       <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`) : ''}</div></div>`,
       viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
-  online(tab = 'podcasts') { return tab === 'radio' ? radioView() : podcastsView(); },
+  online(tab = 'podcasts') { return tab === 'radio' ? radioView() : tab === 'music' ? archiveView() : podcastsView(); },
+  async archive(id) {
+    const here = location.hash;
+    if (iaMem.has(id)) return drawAlbum(iaMem.get(id));
+    setView('<div class="empty">Loading…</div>');
+    try { const data = await loadAlbum(id); if (location.hash === here) drawAlbum(data); }
+    catch { if (location.hash === here) setView(`<div class="empty"><h1>Can't load this recording</h1><p>${navigator.onLine ? 'The Internet Archive did not answer, or this item has no playable audio.' : 'You are offline. Saved albums and downloads are on the Free music page.'}</p></div>`); }
+  },
   async podcast(id) {
     const here = location.hash;
     if (podMem.has(id) && Date.now() - podMem.get(id).at < 30 * 60000) return drawPodcast(podMem.get(id));
@@ -1146,7 +1227,7 @@ function route() {
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
   const navKey = { album: 'library', artist: 'library', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
-  const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : null;
+  const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
 }
@@ -1221,6 +1302,29 @@ const A = {
     await idb.put('kv', S.pods, 'pods'); toast(on ? 'Unfollowed' : 'Following — find it under Podcasts'); rerender();
   },
   'edit-lookup': lookupInfo,
+  'ia-set': el => { S.iaSet = el.dataset.set; rerender(); },
+  'save-album': async () => {
+    const al = S.curAlbum; if (!al) return;
+    const on = S.ia.some(a => a.id === al.id);
+    S.ia = on ? S.ia.filter(a => a.id !== al.id) : [...S.ia, al];
+    await idb.put('kv', S.ia, 'iaSaved');
+    if (on) idb.del('kv', 'ia:' + al.id).catch(() => {}); else if (iaMem.has(al.id)) idb.put('kv', iaMem.get(al.id), 'ia:' + al.id).catch(() => {});
+    toast(on ? 'Removed from saved' : 'Saved — find it under Free music'); rerender();
+  },
+  'album-dl': async () => {
+    const todo = viewIds.map(T).filter(t => t?.kind === 'ia' && !S.dl[t.id]);
+    if (!todo.length) return toast('Everything here is already downloaded');
+    if (!navigator.onLine) return toast('Connect to the internet to download');
+    let done = 0;
+    for (const t of todo) {
+      setBanner(`<span>Downloading… ${done + 1} / ${todo.length}</span><div class="bar"><i style="width:${done / todo.length * 100}%"></i></div>`);
+      try { const r = await fetch(t.url); if (!r.ok) throw new Error('HTTP ' + r.status); await idb.put('files', await r.blob(), t.id); S.dl[t.id] = t; done++; }
+      catch (e) { if (e?.name === 'QuotaExceededError') { toast('Storage is full'); break; } if (!done) break; }
+    }
+    await idb.put('kv', S.dl, 'dl'); setBanner('');
+    toast(done ? `Downloaded ${done} track${done === 1 ? '' : 's'} for offline` : "This recording is stream-only and can't be downloaded");
+    if (page() === 'archive') rerender();
+  },
   'toggle-online': async () => { S.online = S.online === false; await idb.put('kv', S.online, 'online'); rerender(); },
   'find-covers': findAllCovers,
   'export': exportBackup,
@@ -1305,6 +1409,7 @@ async function boot() {
   S.stations = await idb.get('kv', 'stations') || [];
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
+  S.ia = await idb.get('kv', 'iaSaved') || [];
   for (const x of state?.remote || []) reg(x);
   for (const x of Object.values(S.dl)) reg(x);
   for (const x of S.stations) reg(x);

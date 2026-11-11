@@ -224,6 +224,9 @@ async function makeThumb(pic) {
 // items: [{ file }] (copied into the app) or [{ handle, folderId }] (linked, read in place)
 // Imports run several files at a time, keep the screen awake, and can be interrupted at any
 // point: every song is saved as soon as it is read, and a linked folder carries on where it stopped.
+// No single file may hold up an import: some phone storage never answers for certain files.
+const IMPORT_WAIT = { file: 20000, tags: 15000, art: 8000, ...(window.CADENCE_TEST_WAIT || {}) };
+const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), ms))]);
 async function importItems(items) {
   if (importing) { toast('An import is already running'); return null; }
   if (!items.length) { toast('No audio files found'); return { added: 0 }; }
@@ -239,18 +242,23 @@ async function importItems(items) {
   for (const t of all) if (t.folderId && !t.path) { const k = `${t.folderId}|${t.fileName}`; (legacy.get(k) || legacy.set(k, []).get(k)).push(t); }
   const todo = items.filter(it => !(it.path && knownPath.has(`${it.folderId}|${it.path}`)));
   const total = todo.length, artBusy = new Set();
-  let added = 0, skipped = items.length - todo.length, failed = 0, done = 0, stop = false, full = false, lastDraw = 0;
+  let added = 0, skipped = items.length - todo.length, failed = 0, done = 0, stop = false, full = false, lastDraw = 0, lastName = 0;
+  const unreadable = [];
   if (!total) { importing = false; toast('Everything in that folder is already in your library'); return { added: 0 }; }
 
   let lock = null;
   const keepAwake = async () => { try { if (importing && !document.hidden) lock = await navigator.wakeLock?.request('screen'); } catch {} };
   document.addEventListener('visibilitychange', keepAwake); keepAwake();
-  setBanner(`<span id="imp-text">Adding music…</span><div class="bar"><i></i></div><button class="btn" id="imp-stop">Stop</button><span class="muted" style="flex-basis:100%;font-size:12px">You can keep using the app. If you close it, it carries on from here next time.</span>`);
+  setBanner(`<span id="imp-text">Adding music…</span><div class="bar"><i></i></div><button class="btn" id="imp-stop">Stop</button><span class="muted imp-file" id="imp-file"></span><span class="muted" style="flex-basis:100%;font-size:12px">You can keep using the app. If you close it, it carries on from here next time.</span>`);
   $('#imp-stop').onclick = () => { stop = true; };
 
   const one = async it => {
+    const label = it.path || it.file?.name || it.handle?.name || '';
+    if (Date.now() - lastName > 400) { lastName = Date.now(); const el = $('#imp-file'); if (el) el.textContent = 'Reading ' + label; }
     try {
-      const file = it.file || await it.handle.getFile();
+      let file;
+      try { file = it.file || await within(it.handle.getFile(), IMPORT_WAIT.file); }
+      catch (e) { unreadable.push(label); console.warn('could not open', label, e); failed++; return; }
       if (!(AUDIO_EXT.test(file.name) || file.type.startsWith('audio/'))) return;
       if (it.path) {
         const old = legacy.get(`${it.folderId}|${file.name}`)?.find(t => t.size === file.size && !t.path);
@@ -260,7 +268,8 @@ async function importItems(items) {
       if (seen.has(sig)) { skipped++; return; }
       seen.add(sig);
       let c = {}, f = {};
-      if (mm) { try { const meta = await mm.parseBlob(file, { skipPostHeaders: true }); c = meta.common || {}; f = meta.format || {}; } catch { /* untagged or odd file */ } }
+      // Tags that take too long to read are skipped; the song is still added, named from its file name.
+      if (mm) { try { const meta = await within(mm.parseBlob(file, { skipPostHeaders: true }), IMPORT_WAIT.tags); c = meta.common || {}; f = meta.format || {}; } catch (e) { if (e?.name === 'TimeoutError') console.warn('tags timed out', label); } }
       const fb = fallbackTags(file.name);
       const id = uid();
       const artist = c.artist || fb.artist || '';
@@ -278,9 +287,11 @@ async function importItems(items) {
       await idb.put('files', it.handle || file, id);
       if (c.picture?.length && !S.artUrls.has(t.artId) && !artBusy.has(t.artId)) {
         artBusy.add(t.artId);
-        const thumb = await makeThumb(c.picture[0]);
-        await idb.put('art', thumb, t.artId);
-        S.artUrls.set(t.artId, URL.createObjectURL(thumb));
+        try {
+          const thumb = await within(makeThumb(c.picture[0]), IMPORT_WAIT.art);
+          await idb.put('art', thumb, t.artId);
+          S.artUrls.set(t.artId, URL.createObjectURL(thumb));
+        } catch (e) { artBusy.delete(t.artId); console.warn('cover skipped', label, e); }
       }
       await idb.put('tracks', t);
       S.tracks.set(id, t); added++;
@@ -300,6 +311,9 @@ async function importItems(items) {
   importing = false; setBanner('');
   document.removeEventListener('visibilitychange', keepAwake); try { await lock?.release(); } catch {}
   rebuild(); route();
+  if (unreadable.length) {
+    ask({ title: `${unreadable.length} file${unreadable.length === 1 ? '' : 's'} could not be opened`, text: `Your phone or computer didn't hand ${unreadable.length === 1 ? 'this file' : 'these files'} over, so ${unreadable.length === 1 ? 'it was' : 'they were'} skipped. This usually means a file is damaged, still downloading, or stored online only. Everything else was added. ${unreadable.slice(0, 8).join(' · ')}${unreadable.length > 8 ? ` and ${unreadable.length - 8} more` : ''}`, ok: 'OK' });
+  }
   toast(full ? `Storage is full — stopped after ${added} songs` : added ? `Added ${added} song${added === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in library` : ''}`
     : skipped ? 'Those songs are already in your library' : failed ? 'Could not read those files' : 'No audio files found');
   checkFolderAccess();

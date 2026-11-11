@@ -355,3 +355,6 @@ html { touch-action: manipulation; }
 .artist-link:hover { text-decoration: underline; color: var(--text); }
 /* On a phone the small player bar opens Now Playing wherever it is tapped; the artist link lives on that screen. */
 @media (max-width: 768px) { #p-artist { pointer-events: none; } }
+
+.imp-file { flex-basis: 100%; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-file:empty { display: none; }

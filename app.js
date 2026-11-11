@@ -173,7 +173,7 @@ function openMenu(items, ev, title) {
   const m = $('#menu');
   m.innerHTML = (title ? `<div class="menu-title">${esc(title)}</div>` : '') +
     items.map((it, i) => `<button data-mi="${i}" class="${it.danger ? 'danger' : ''}">${ic(it.icon)}<span>${esc(it.label)}</span></button>`).join('');
-  m._items = items; m.hidden = false; $('#backdrop').hidden = false;
+  m._items = items; m.hidden = false; $('#backdrop').hidden = false; overlayOpened();
   m.style.left = m.style.top = '';
   if (isDesktop() && lastPointer) {
     const r = m.getBoundingClientRect();
@@ -181,7 +181,7 @@ function openMenu(items, ev, title) {
     m.style.top = Math.max(8, Math.min(lastPointer.clientY, innerHeight - r.height - 8)) + 'px';
   }
 }
-function closeMenu() { $('#menu').hidden = true; $('#backdrop').hidden = true; }
+function closeMenu() { if ($('#menu').hidden) return; $('#menu').hidden = true; $('#backdrop').hidden = true; overlayClosed(); }
 $('#backdrop').addEventListener('click', closeMenu);
 $('#menu').addEventListener('click', e => {
   const b = e.target.closest('[data-mi]'); if (!b) return;
@@ -797,10 +797,10 @@ function trackMenu(t, ev, ctx = {}) {
     { label: t.liked ? 'Remove from liked songs' : 'Like', icon: 'heart', fn: () => toggleLike(t.id) },
     { label: 'Download the file', icon: 'save', fn: () => exportTracks([t.id]) },
     !ctx.np && { label: 'Select', icon: 'check', fn: () => toggleSel(t.id) },
-    t.album && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/album/${encodeURIComponent(t.albumKey)}`; } },
-    { label: 'Go to artist', icon: 'user', fn: () => { closeNP(); location.hash = `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`; } },
+    t.album && { label: 'Go to album', icon: 'disc', fn: () => nav(`#/album/${encodeURIComponent(t.albumKey)}`) },
+    { label: 'Go to artist', icon: 'user', fn: () => nav(`#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`) },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
-    ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => { closeNP(); location.hash = '#/settings'; } },
+    ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => nav('#/settings') },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
     !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
       if (!navigator.onLine) return toast('Connect to the internet to look up covers');
@@ -1556,8 +1556,8 @@ function remoteMenu(t, ev, ctx = {}) {
     (ep || ia) && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
     ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false; $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
     ep && S.epos[t.id] && { label: 'Start from the beginning', icon: 'prev', fn: () => { delete S.epos[t.id]; idb.put('kv', S.epos, 'epos'); if (S.loadedId === t.id) audio.currentTime = 0; else rerender(); } },
-    ep && { label: 'Go to podcast', icon: 'mic', fn: () => { closeNP(); location.hash = `#/podcast/${encodeURIComponent(t.podId)}`; } },
-    ia && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/archive/${encodeURIComponent(t.iaId)}`; } },
+    ep && { label: 'Go to podcast', icon: 'mic', fn: () => nav(`#/podcast/${encodeURIComponent(t.podId)}`) },
+    ia && { label: 'Go to album', icon: 'disc', fn: () => nav(`#/archive/${encodeURIComponent(t.iaId)}`) },
     { label: 'Add to playlist', icon: 'plus', fn: () => pickPlaylist([t.id]) },
     t.kind !== 'station' && { label: t.liked ? 'Remove from liked songs' : 'Like', icon: 'heart', fn: () => toggleLike(t.id) },
     { label: 'Select', icon: 'check', fn: () => toggleSel(t.id) },
@@ -1607,6 +1607,7 @@ const saveBtn = `<button class="icon-btn" data-act="export-view" aria-label="Dow
 
 /* ---------------- selecting several songs ---------------- */
 function syncSel() {
+  if (S.sel.size && $('#selbar').hidden) overlayOpened(); else if (!S.sel.size && !$('#selbar').hidden) overlayClosed();
   $('#selbar').hidden = !S.sel.size; document.body.classList.toggle('selecting', !!S.sel.size);
   $('#sel-count').textContent = `${S.sel.size} selected`;
   $$('.row').forEach(r => r.classList.toggle('sel', S.sel.has(r.dataset.id)));
@@ -1997,12 +1998,40 @@ function renderSidePlaylists() {
 }
 let carLock = null;
 async function carMode(on) {
-  $('#car').hidden = !on; if (on) closeNP();
+  const was = !$('#car').hidden; $('#car').hidden = !on; if (on) closeNP();
+  if (on && !was) overlayOpened(); else if (!on && was) overlayClosed();
   try { if (on) carLock = await navigator.wakeLock?.request('screen'); else { await carLock?.release(); carLock = null; } } catch { carLock = null; }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#car').hidden) carMode(true); });
-function openNP() { if (current()) $('#np').hidden = false; }
-function closeNP() { $('#np').hidden = true; }
+function openNP() { if (current() && $('#np').hidden) { $('#np').hidden = false; overlayOpened(); } }
+function closeNP() { if ($('#np').hidden) return; $('#np').hidden = true; overlayClosed(); }
+
+/* ---------------- phone Back button ---------------- */
+// While a full-screen layer (Now Playing, car mode, a menu, the selection bar) is open, one extra
+// history entry sits on top, so Back closes the layer instead of leaving the app or the page.
+const overlayOpen = () => !$('#np').hidden || !$('#car').hidden || !$('#menu').hidden || S.sel.size > 0;
+let ignorePop = false;
+function overlayOpened() { if (!history.state?.ov) history.pushState({ ov: 1 }, ''); }
+function overlayClosed() {
+  // Closed by a button: remove the extra entry, unless something else opened or the page moved on meanwhile.
+  setTimeout(() => { if (!overlayOpen() && history.state?.ov) { ignorePop = true; history.back(); } }, 0);
+}
+addEventListener('popstate', () => {
+  if (ignorePop) { ignorePop = false; return; }
+  if (!overlayOpen()) return;   // an ordinary page change; the hashchange handler takes it
+  if (!$('#menu').hidden) closeMenu();
+  else if (!$('#car').hidden) carMode(false);
+  else if (S.sel.size) clearSel();
+  else closeNP();
+  if (overlayOpen()) history.pushState({ ov: 1 }, '');   // something is still open underneath
+});
+// Go to a page from inside a layer: the layer's history entry becomes the new page, so Back
+// from there returns to where you were before the layer opened.
+function nav(hash) {
+  closeNP(); if (!$('#car').hidden) carMode(false);
+  if (history.state?.ov) { history.replaceState(null, '', hash); dispatchEvent(new HashChangeEvent('hashchange')); }
+  else location.hash = hash;
+}
 
 /* ---------------- actions ---------------- */
 let installEvt = null;
@@ -2084,9 +2113,8 @@ const A = {
   // The artist line under the playing song leads to everything by that artist.
   'go-artist': () => {
     const t = current(); if (!t) return;
-    closeNP(); if (!$('#car').hidden) carMode(false);
-    location.hash = !t.url ? `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`
-      : t.kind === 'episode' ? `#/podcast/${encodeURIComponent(t.podId)}` : t.kind === 'ia' ? `#/archive/${encodeURIComponent(t.iaId)}` : '#/online/radio';
+    nav(!t.url ? `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`
+      : t.kind === 'episode' ? `#/podcast/${encodeURIComponent(t.podId)}` : t.kind === 'ia' ? `#/archive/${encodeURIComponent(t.iaId)}` : '#/online/radio');
   },
   'sel-done': clearSel,
   'sel-all': () => { for (const l of $$('.tracklist')) for (const id of l._ids) S.sel.add(id); syncSel(); },

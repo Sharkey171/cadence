@@ -2028,7 +2028,8 @@ const A = {
   'play-view': () => { S.shuffle = false; playContext(viewIds, 0); },
   'shuffle-view': () => shufflePlay(viewIds),
   'play-album': (el, e) => { e.preventDefault(); const al = S.albums.get(el.dataset.key); if (al) playContext(al.tracks.map(t => t.id), 0); },
-  'play-recent': el => playContext([...S.tracks.values()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 8).map(t => t.id), $$('.tile').indexOf(el)),
+  // Play the tiles exactly as they are on screen; the recently-played order changes with every song.
+  'play-recent': el => { const tiles = $$('.tile', el.parentElement); playContext(tiles.map(x => x.dataset.id), tiles.indexOf(el)); },
   'view-menu': (el, e) => openMenu([
     { label: 'Play next', icon: 'next', fn: () => enqueue(viewIds, true) },
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue(viewIds, false) },

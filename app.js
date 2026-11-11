@@ -54,6 +54,8 @@ const ICONS = {
   grip: fill('<circle cx="9" cy="6" r="1.600"/><circle cx="15" cy="6" r="1.600"/><circle cx="9" cy="12" r="1.600"/><circle cx="15" cy="12" r="1.600"/><circle cx="9" cy="18" r="1.600"/><circle cx="15" cy="18" r="1.600"/>'),
   tag: stroke('<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.500"/>'),
   spark: stroke('<path d="M12 3l2.200 5.800L20 11l-5.800 2.200L12 19l-2.200-5.800L4 11l5.800-2.200z"/>'),
+  car: stroke('<path d="M4 16v-3l2-5.500A2 2 0 0 1 7.900 6h8.200a2 2 0 0 1 1.900 1.500L20 13v3M4 16h16M4 16v2.500M20 16v2.500M3.500 12.500h17"/><circle cx="7.500" cy="14.500" r="1"/><circle cx="16.500" cy="14.500" r="1"/>'),
+  chart: stroke('<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -97,13 +99,22 @@ const S = {
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
-  volume: 1, hist: [], saved: {}, sel: new Set(),
+  volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
 const T = id => S.tracks.get(id) || S.remote.get(id);
 const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
+const ACCENTS = { Coral: '#ff7a59', Blue: '#5b9dff', Green: '#3ddc97', Purple: '#a98bfa', Pink: '#ff6fae', Gold: '#f5b942' };
+function applyTheme() {
+  const r = document.documentElement;
+  r.dataset.theme = S.theme.mode; r.style.setProperty('--accent', S.theme.accent);
+  $('meta[name=theme-color]').content = S.theme.mode === 'light' ? '#f5f4f0' : '#0e0e12';
+  try { localStorage.setItem('cadence-theme', JSON.stringify(S.theme)); } catch {}
+}
+try { const saved = JSON.parse(localStorage.getItem('cadence-theme')); if (saved?.mode && /^#[0-9a-f]{6}$/i.test(saved.accent)) S.theme = saved; } catch {}
+applyTheme();
 let audio = $('#audio');   // the element currently in charge; see the playback section
 const view = $('#view');
 const current = () => T(S.queue[S.qIndex]);
@@ -610,7 +621,7 @@ onAudio('timeupdate', () => {
   const t = current();
   if (t && !logged && !t.live && audio.currentTime >= Math.min(30, (audio.duration || 60) / 2)) { logged = true; logPlay(t); }
   if (sleepAt && Date.now() >= sleepAt) { pauseNow(); setSleep(0, true); toast('Sleep timer ended'); }
-  maybeTransition();
+  maybeTransition(); syncLyrics();
   if (Date.now() - lastSave > 5000) saveState();
 });
 // Listening history, for the stats page.
@@ -640,6 +651,7 @@ function syncPlayer() {
   $('#p-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   $('#np-title').textContent = t ? t.title : '';
   $('#np-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
+  $('#car-title').textContent = t ? t.title : 'Nothing playing'; $('#car-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   setArt($('#p-art'), t); setArt($('#np-art'), t);
   const u = t && S.artUrls.get(t.artId);
   $('#np-bg').style.backgroundImage = u ? `url('${u}')` : 'none';
@@ -791,16 +803,39 @@ const cleanTitle = s => String(s || '').replace(/\s*[(\[][^)\]]*(official|video|
 async function fetchJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
 const sameArtist = (a, b) => { a = norm(a).replace(/^the /, ''); b = norm(b).replace(/^the /, ''); return !!a && !!b && (a.includes(b) || b.includes(a)); };
 
+// Returns { plain, synced } — synced is LRC text with a time on every line, when the service has it.
 async function findLyricsOnline(t) {
   const q = new URLSearchParams({ track_name: cleanTitle(t.title) });
   if (t.artist) q.set('artist_name', t.artist);
   const list = await fetchJSON('https://lrclib.net/api/search?' + q);
-  let c = list.filter(x => (x.plainLyrics || x.syncedLyrics) && (!t.artist || sameArtist(x.artistName, t.artist)));
-  if (!c.length) return list.some(x => x.instrumental) ? 'This song is instrumental.' : null;
-  if (t.duration) c.sort((a, b) => Math.abs((a.duration || 0) - t.duration) - Math.abs((b.duration || 0) - t.duration));
-  return c[0].plainLyrics || c[0].syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, '');
+  const c = list.filter(x => (x.plainLyrics || x.syncedLyrics) && (!t.artist || sameArtist(x.artistName, t.artist)));
+  if (!c.length) return list.some(x => x.instrumental) ? { plain: 'This song is instrumental.', synced: '' } : null;
+  const off = x => t.duration ? Math.abs((x.duration || 0) - t.duration) : 0;
+  c.sort((x, y) => off(x) - off(y));
+  // Timed lyrics only line up when they were made for a recording of the same length.
+  const timed = c.find(x => x.syncedLyrics && off(x) < 4);
+  const best = timed || c[0];
+  return { plain: best.plainLyrics || best.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: timed ? timed.syncedLyrics : '' };
 }
+const parseLrc = text => String(text || '').split('\n').map(l => { const m = /^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/.exec(l.trim()); return m ? { t: +m[1] * 60 + +m[2], text: m[3] } : null; }).filter(Boolean);
 
+async function artistBio(name) {
+  const key = 'bio:' + norm(name);
+  let c = await idb.get('kv', key).catch(() => null);
+  if (c && (c.text || Date.now() - c.at < 30 * 864e5)) return c.text ? c : null;
+  if (!onlineOK()) return null;
+  // Ask for the pages this artist would be filed under, most specific first. Redirects are followed.
+  const titles = [`${name} (band)`, `${name} (musician)`, `${name} (singer)`, `${name} (rapper)`, name];
+  const p = new URLSearchParams({ action: 'query', titles: titles.join('|'), redirects: 1, prop: 'extracts|description|info|pageprops', ppprop: 'disambiguation', inprop: 'url', exintro: 1, explaintext: 1, exsentences: 4, exlimit: 'max', format: 'json', origin: '*' });
+  const d = await fetchJSON('https://en.wikipedia.org/w/api.php?' + p);
+  const music = /\b(band|singer|musician|rapper|songwriter|duo|trio|group|composer|dj|producer|vocalist|guitarist|pianist|orchestra|ensemble)\b/i;
+  // Only accept a page that is about music, so a namesake (a town, a film, a footballer) is never shown.
+  const pages = Object.values(d.query?.pages || {}).filter(pg => pg.extract && !pg.pageprops && music.test(`${pg.description || ''} ${pg.extract.slice(0, 400)}`));
+  const hit = pages.find(pg => /\((band|musician|singer|rapper)\)$/i.test(pg.title)) || pages[0];
+  c = hit?.extract ? { text: hit.extract.trim(), url: hit.fullurl, at: Date.now() } : { at: Date.now() };
+  idb.put('kv', c, key).catch(() => {});
+  return c.text ? c : null;
+}
 let lastCoverCall = 0;
 const coverTried = new Set();
 async function coverSearch(term, entity) {
@@ -845,30 +880,59 @@ async function findAllCovers() {
 }
 
 /* ---------------- lyrics, editing, reordering ---------------- */
+let lyrLive = null;   // { id, lines, at } while timed lyrics are on screen
 async function showLyrics(t) {
-  const d = $('#lyr'), pre = $('pre', d), src = $('.lyr-src', d);
-  $('h3', d).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  const d = $('#lyr'), pre = $('pre', d), box = $('.lrc', d), src = $('.lyr-src', d), head = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  $('h3', d).textContent = head; pre.hidden = false; box.hidden = true; lyrLive = null;
   pre.textContent = 'Looking for lyrics…'; src.textContent = '';
   d.showModal(); pre.scrollTop = 0;
-  let text = '', from = '';
-  try {
+  let plain = '', lines = [], from = '';
+  if (!t.url) try {
     const mm = await import('./vendor/music-metadata.js');
-    const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true });
-    text = (meta.common.lyrics || []).map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n').trim();
+    const ly = (await mm.parseBlob(await getFile(t.id), { skipCovers: true })).common.lyrics || [];
+    plain = ly.map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n').trim();
+    const st = ly.find(l => l?.syncText?.length > 3 && l.syncText.some(x => x.timestamp > 0));
+    lines = st ? st.syncText.map(x => ({ t: (x.timestamp || 0) / 1000, text: x.text })) : parseLrc(plain);
+    if (lines.length > 3) plain = plain.replace(/^\[[^\]]*\]\s?/gm, ''); else lines = [];
   } catch (e) { console.warn('lyrics', e); }
-  if (!text) { text = await idb.get('kv', 'lyr:' + t.id).catch(() => '') || ''; if (text) from = 'Lyrics from LRCLIB, saved for offline use'; }
+  const saved = 'Lyrics from LRCLIB, saved for offline use';
+  if (!plain) {
+    const c = await idb.get('kv', 'lyr:' + t.id).catch(() => null);
+    if (c) { plain = typeof c === 'string' ? c : c.plain || ''; lines = parseLrc(c.synced); from = saved; }
+  }
   let note = 'No lyrics found for this song. If the title or artist looks wrong, fix it with Edit info and the search runs again.';
-  if (!text) {
+  if (!plain) {
     if (S.online === false) note = 'No lyrics are saved inside this file. Turn on online lookups in Settings to search for them.';
     else if (!navigator.onLine) note = 'No lyrics are saved for this song yet. Connect to the internet and open this again to look them up.';
     else try {
-      text = await findLyricsOnline(t) || '';
-      if (text) { from = 'Lyrics from LRCLIB, saved for offline use'; idb.put('kv', text, 'lyr:' + t.id).catch(() => {}); }
+      const r = await findLyricsOnline(t);
+      if (r) { plain = r.plain; lines = parseLrc(r.synced); from = saved; idb.put('kv', r, 'lyr:' + t.id).catch(() => {}); }
     } catch (e) { console.warn('lyrics lookup', e); note = 'The lyrics service could not be reached. Try again later.'; }
   }
-  if ($('h3', d).textContent !== `${t.title} · ${t.artist || 'Unknown artist'}`) return;   // another song was opened meanwhile
-  pre.textContent = text || note; src.textContent = from; pre.scrollTop = 0;
+  if ($('h3', d).textContent !== head || !d.open) return;   // closed, or another song was opened meanwhile
+  if (lines.length > 3) {
+    box.innerHTML = lines.map((l, i) => `<p data-i="${i}">${esc(l.text) || '♪'}</p>`).join('');
+    box.hidden = false; pre.hidden = true; box.scrollTop = 0;
+    lyrLive = { id: t.id, lines, at: -2 };
+    src.textContent = `${from ? from + '. ' : ''}The lines follow the song — click one to jump there.`;
+    syncLyrics();
+  } else { pre.textContent = plain || note; src.textContent = from; pre.scrollTop = 0; }
 }
+function syncLyrics() {
+  if (!lyrLive || S.loadedId !== lyrLive.id) return;
+  const now = audio.currentTime + 0.25, L = lyrLive.lines;
+  let i = -1; for (let k = 0; k < L.length && L[k].t <= now; k++) i = k;
+  if (i === lyrLive.at) return;
+  lyrLive.at = i;
+  const box = $('#lyr .lrc'); $('.now', box)?.classList.remove('now');
+  const el = box.children[i];
+  if (el) { el.classList.add('now'); box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' }); }
+}
+$('#lyr').addEventListener('close', () => { lyrLive = null; });
+$('#lyr .lrc').addEventListener('click', e => {
+  const p = e.target.closest('p'); if (!p || !lyrLive) return;
+  if (S.loadedId === lyrLive.id) { audio.currentTime = lyrLive.lines[+p.dataset.i].t; syncLyrics(); } else toast('Play this song to jump around in it');
+});
 async function editInfo(t) {
   const d = $('#edit'), f = $('form', d).elements;
   for (const k of ['title', 'artist', 'album', 'albumArtist']) f[k].value = t[k] || '';
@@ -993,7 +1057,7 @@ const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcast
 
 // --- podcasts (Apple's public podcast directory; shows are streamed from their own hosts) ---
 const podFrom = r => ({ id: String(r.collectionId), name: r.collectionName, author: r.artistName, art: r.artworkUrl600 || r.artworkUrl100 });
-const podCard = p => `<a class="card" href="#/podcast/${encodeURIComponent(p.id)}">${safeUrl(p.art) ? `<div class="art" style="background-image:url('${safeUrl(p.art)}')"></div>` : artDiv(null, p.name, '', 'mic')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${esc(p.author || '')}</div></a>`;
+const podCard = p => `<a class="card" data-pod="${esc(p.id)}" href="#/podcast/${encodeURIComponent(p.id)}">${safeUrl(p.art) ? `<div class="art" style="background-image:url('${safeUrl(p.art)}')"></div>` : artDiv(null, p.name, '', 'mic')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${esc(p.author || '')}</div></a>`;
 let topPods = null; const podMem = new Map(), podSearchMem = new Map();
 async function loadTopPods() {
   if (topPods) return topPods;
@@ -1006,16 +1070,16 @@ async function searchPods(q) {
   const r = (d.results || []).filter(x => x.collectionId && x.collectionName).map(podFrom);
   podSearchMem.set(q, r); return r;
 }
-async function loadPodcast(id) {
+async function loadPodcast(id, maxAge = 30 * 60000) {
   let data = podMem.get(id) || await idb.get('kv', 'pod:' + id).catch(() => null);
-  if (navigator.onLine && (!data || Date.now() - data.at > 30 * 60000)) {
+  if (navigator.onLine && (!data || Date.now() - data.at > maxAge)) {
     try {
       const d = await fetchJSON('https://itunes.apple.com/lookup?' + new URLSearchParams({ id, media: 'podcast', entity: 'podcastEpisode', limit: 200 }));
       const head = (d.results || []).find(r => r.kind === 'podcast');
       if (!head) throw new Error('not found');
       const pod = podFrom(head);
       const eps = d.results.filter(r => r.kind === 'podcast-episode' && r.episodeUrl).sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate)).map(r => ({
-        id: 'ep:' + r.trackId, kind: 'episode', podId: pod.id, title: r.trackName, artist: pod.name,
+        id: 'ep:' + r.trackId, kind: 'episode', podId: pod.id, date: r.releaseDate || '', title: r.trackName, artist: pod.name,
         album: r.releaseDate ? new Date(r.releaseDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
         url: r.episodeUrl, duration: r.trackTimeMillis ? r.trackTimeMillis / 1000 : null, art: pod.art, artId: 'r:pod:' + pod.id,
         desc: String(r.description || r.shortDescription || '').slice(0, 3000),
@@ -1030,7 +1094,8 @@ async function loadPodcast(id) {
 }
 function drawPodcast({ pod, eps }) {
   viewIds = eps.map(e => e.id); S.curPod = pod;
-  const following = S.pods.some(p => p.id === pod.id);
+  const mine = S.pods.find(p => p.id === pod.id), following = !!mine;
+  if (mine && eps[0]?.date && mine.seen !== eps[0].date) { mine.seen = eps[0].date; idb.put('kv', S.pods, 'pods').catch(() => {}); }   // opening the show clears its New badge
   setView(`<div class="hero">${safeUrl(pod.art) ? `<div class="art" style="background-image:url('${safeUrl(pod.art)}')"></div>` : artDiv(null, pod.name, '', 'mic')}<div class="hero-text"><div class="kind">Podcast</div><h1>${esc(pod.name)}</h1>
     <div class="muted">${esc(pod.author || '')} · ${eps.length} episode${eps.length === 1 ? '' : 's'}</div>
     <div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play latest</button><button class="btn" data-act="follow-pod">${ic(following ? 'check' : 'plus')}${following ? 'Following' : 'Follow'}</button></div></div></div>`,
@@ -1043,6 +1108,19 @@ async function podcastsView() {
     S.pods.length ? `<h2>Your podcasts</h2><div class="grid">${S.pods.map(podCard).join('')}</div>` : '',
     dls.length ? '<h2>Downloaded episodes</h2>' : '', dls.length ? trackList(viewIds) : null, '<div id="pod-top"></div>');
   const fill = (sel, html) => { const el = $(sel); if (el && location.hash === here) el.innerHTML = html; };
+  // Check followed shows for episodes newer than the last one seen, and badge them.
+  (async () => {
+    let changed = false;
+    for (const pod of S.pods.slice(0, 12)) {
+      try {
+        const newest = (await loadPodcast(pod.id, 3 * 3600e3)).eps[0]?.date;
+        if (!newest) continue;
+        if (!pod.seen) { pod.seen = newest; changed = true; }
+        else if (newest > pod.seen && location.hash === here) { const c = $$('#view .card[data-pod]').find(x => x.dataset.pod === pod.id); if (c && !$('.badge', c)) c.insertAdjacentHTML('beforeend', '<span class="badge">New</span>'); }
+      } catch { /* offline or directory busy: try again next visit */ }
+    }
+    if (changed) idb.put('kv', S.pods, 'pods').catch(() => {});
+  })();
   if (S.podQ) {
     fill('#pod-results', '<p class="muted">Searching…</p>');
     try { const r = await searchPods(S.podQ); fill('#pod-results', r.length ? `<h2>Results for “${esc(S.podQ)}”</h2><div class="grid">${r.map(podCard).join('')}</div>` : `<div class="empty">No podcasts match “${esc(S.podQ)}”.</div>`); }
@@ -1197,7 +1275,7 @@ function remoteMenu(t, ev, ctx = {}) {
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue([t.id], false) },
     (ep || ia) && !S.dl[t.id] && { label: 'Download for offline', icon: 'save', fn: () => downloadEp(t) },
     (ep || ia) && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
-    ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
+    ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false; $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
     ep && S.epos[t.id] && { label: 'Start from the beginning', icon: 'prev', fn: () => { delete S.epos[t.id]; idb.put('kv', S.epos, 'epos'); if (S.loadedId === t.id) audio.currentTime = 0; else rerender(); } },
     ep && { label: 'Go to podcast', icon: 'mic', fn: () => { closeNP(); location.hash = `#/podcast/${encodeURIComponent(t.podId)}`; } },
     ia && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/archive/${encodeURIComponent(t.iaId)}`; } },
@@ -1410,7 +1488,7 @@ const VIEWS = {
     viewIds = allSongIds();
     setView(
       `<h1>${hr < 5 ? 'Late night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}</h1>
-       <div class="muted">${total(ts)} in your library</div>${heroActions().replace('Play<', 'Play all<')}`,
+       <div class="muted">${total(ts)} in your library</div>${heroActions(`<a class="btn" href="#/stats">${ic('chart')}Your stats</a>`).replace('Play<', 'Play all<')}`,
       recent.length ? `<h2>Jump back in</h2><div class="tiles">${recent.map(t => `<button class="tile" data-act="play-recent" data-id="${t.id}">${artDiv(t.artId, t.album || t.title)}<span>${esc(t.title)}</span></button>`).join('')}</div>` : '',
       `<h2>Recently added</h2><div class="grid">${newest.map(albumCard).join('')}</div>`,
       top.length ? '<h2>Most played</h2>' : '', top.length ? trackList(top.map(t => t.id)) : null,
@@ -1440,9 +1518,34 @@ const VIEWS = {
     const albums = [...S.albums.values()].filter(a => norm(a.artist) === key).sort((a, b) => (b.year || 0) - (a.year || 0));
     viewIds = [...ar.tracks].sort(SORTS.album).map(t => t.id);
     setView(`<div class="hero">${artDiv(ar.artId, ar.name, 'round', 'user')}<div class="hero-text"><div class="kind">Artist</div><h1>${esc(ar.name)}</h1>
-      <div class="muted">${total(ar.tracks)}</div>${heroActions()}</div></div>`,
+      <div class="muted">${total(ar.tracks)}</div>${heroActions()}</div></div>`, '<div id="bio"></div>',
       albums.length ? `<h2>Albums</h2><div class="grid">${albums.map(albumCard).join('')}</div>` : '',
       '<h2>Songs</h2>', trackList(viewIds));
+    const here = location.hash;
+    if (ar.name !== 'Unknown artist') artistBio(ar.name).then(b => {
+      const el = $('#bio');
+      if (b && el && location.hash === here) el.innerHTML = `<p class="bio">${esc(b.text)} <a href="${esc(b.url)}" target="_blank" rel="noopener">Read more on Wikipedia</a></p>`;
+    }).catch(e => console.warn('biography', e));
+  },
+  stats() {
+    const P = [[7, 'Last 7 days'], [30, 'Last 30 days'], [365, 'Last year'], [0, 'All time']];
+    const since = S.statP ? Date.now() - S.statP * 864e5 : 0, h = S.hist.filter(x => x.a >= since);
+    const chips = `<div class="chips">${P.map(([d, l]) => `<button class="chip ${S.statP === d ? 'active' : ''}" data-act="stat-p" data-d="${d}">${l}</button>`).join('')}</div>`;
+    viewIds = [];
+    if (!h.length) return setView('<h1>Your listening</h1>', chips, `<div class="empty">Nothing played in this period yet. ${S.hist.length ? '' : 'Listening is counted from now on: a song counts once you have heard 30 seconds of it.'}</div>`);
+    const count = fn => { const m = new Map(); for (const x of h) { const k = fn(x); if (!k) continue; const e = m.get(k) || m.set(k, { n: 0, x }).get(k); e.n++; } return [...m.values()].sort((a, b) => b.n - a.n); };
+    const music = x => x.k !== 'episode';
+    const artists = count(x => music(x) && x.r), songs = count(x => music(x) && x.i), shows = count(x => !music(x) && x.r);
+    const secs = h.reduce((a, x) => a + (x.d || 0), 0), hrs = secs / 3600;
+    const days = count(x => new Date(x.a).toLocaleDateString(undefined, { weekday: 'long' }));
+    const bars = (list, label) => `<div class="bars">${list.slice(0, 10).map(e => `<div class="bar-row"><span>${esc(label(e.x))}</span><i><b style="width:${Math.max(4, e.n / list[0].n * 100)}%"></b></i><em>${e.n}</em></div>`).join('')}</div>`;
+    const tile = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
+    setView('<h1>Your listening</h1>', chips,
+      `<div class="stats">${tile(h.length, 'plays')}${tile(hrs >= 10 ? Math.round(hrs) : hrs >= 1 ? hrs.toFixed(1) : Math.round(secs / 60), hrs >= 1 ? 'hours' : 'minutes')}${tile(songs.length, 'different songs')}${tile(artists.length, 'artists')}</div>`,
+      artists.length ? '<h2>Top artists</h2>' + bars(artists, x => x.r) : '',
+      songs.length ? '<h2>Top songs</h2>' + bars(songs, x => `${x.t} · ${x.r || 'Unknown artist'}`) : '',
+      shows.length ? '<h2>Top podcasts</h2>' + bars(shows, x => x.r) : '',
+      `<p class="muted" style="margin-top:20px">You listen most on ${esc(days[0].x && new Date(days[0].x.a).toLocaleDateString(undefined, { weekday: 'long' }))}s. Counting started ${new Date(S.hist[0].a).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`);
   },
   liked() {
     const ts = likedItems();
@@ -1537,6 +1640,10 @@ const VIEWS = {
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
         <div class="hero-actions"><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
       soundSettings(),
+      `<div class="settings-block"><h2>Appearance</h2>
+        <div class="hero-actions">${['dark', 'light'].map(m => `<button class="btn ${S.theme.mode === m ? 'primary' : ''}" data-act="theme-mode" data-mode="${m}">${m === 'dark' ? 'Dark' : 'Light'}</button>`).join('')}</div>
+        <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div></div>`,
+      `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
@@ -1551,7 +1658,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { album: 'library', artist: 'library', genre: 'library', decade: 'library', duplicates: 'settings', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { album: 'library', artist: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
@@ -1572,6 +1679,12 @@ $('#q').addEventListener('focus', () => { if (page() !== 'search' && !isDesktop(
 function renderSidePlaylists() {
   $('#side-playlists').innerHTML = S.playlists.map(p => `<a href="#/playlist/${p.id}">${ic(p.smart ? 'spark' : 'list')}<span>${esc(p.name)}</span></a>`).join('');
 }
+let carLock = null;
+async function carMode(on) {
+  $('#car').hidden = !on; if (on) closeNP();
+  try { if (on) carLock = await navigator.wakeLock?.request('screen'); else { await carLock?.release(); carLock = null; } } catch { carLock = null; }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#car').hidden) carMode(true); });
 function openNP() { if (current()) $('#np').hidden = false; }
 function closeNP() { $('#np').hidden = true; }
 
@@ -1625,11 +1738,15 @@ const A = {
   'follow-pod': async () => {
     const pod = S.curPod; if (!pod) return;
     const on = S.pods.some(p => p.id === pod.id);
-    S.pods = on ? S.pods.filter(p => p.id !== pod.id) : [...S.pods, pod];
+    S.pods = on ? S.pods.filter(p => p.id !== pod.id) : [...S.pods, { ...pod, seen: podMem.get(pod.id)?.eps[0]?.date || '' }];
     await idb.put('kv', S.pods, 'pods'); toast(on ? 'Unfollowed' : 'Following — find it under Podcasts'); rerender();
   },
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
+  'car-on': () => carMode(true), 'car-exit': () => carMode(false),
+  'stat-p': el => { S.statP = +el.dataset.d; rerender(); },
+  'theme-mode': el => { S.theme.mode = el.dataset.mode; applyTheme(); rerender(); },
+  'theme-accent': el => { S.theme.accent = el.dataset.c; applyTheme(); rerender(); },
   'sel-done': clearSel,
   'sel-all': () => { for (const l of $$('.tracklist')) for (const id of l._ids) S.sel.add(id); syncSel(); },
   'sel-next': () => { enqueue([...S.sel], true); clearSel(); },
@@ -1712,7 +1829,7 @@ document.addEventListener('contextmenu', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.target.matches('input:not([type=range]), textarea, select') || $('#dlg').open) return;
-  if (e.key === 'Escape') { if (!$('#menu').hidden) closeMenu(); else if (S.sel.size) clearSel(); else closeNP(); return; }
+  if (e.key === 'Escape') { if (!$('#menu').hidden) closeMenu(); else if (!$('#car').hidden) carMode(false); else if (S.sel.size) clearSel(); else closeNP(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.code === 'Space') { e.preventDefault(); toggle(); }
   else if (e.key === 'ArrowRight' && e.shiftKey) next();

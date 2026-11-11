@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 <div id="app">
@@ -110,7 +110,17 @@
     <button class="icon-btn b-skip" data-act="fwd30" aria-label="Forward 30 seconds">+30</button>
         <button class="icon-btn b-repeat" data-act="repeat" data-ic="repeat" aria-label="Repeat"></button>
   </div>
-  <div class="np-foot"><a class="btn" href="#/queue" data-act="close-np" data-ic="queue">Queue</a></div>
+  <div class="np-foot"><a class="btn" href="#/queue" data-act="close-np" data-ic="queue">Queue</a><button class="btn" data-act="car-on" data-ic="car" aria-label="Big buttons for driving">Car mode</button></div>
+</section>
+
+<section id="car" hidden>
+  <button class="btn" data-act="car-exit">Exit car mode</button>
+  <div class="car-meta"><div id="car-title"></div><div id="car-artist"></div></div>
+  <div class="car-ctrls">
+    <button data-act="prev" data-ic="prev" aria-label="Previous song"></button>
+    <button class="pp" data-act="toggle" aria-label="Play or pause"></button>
+    <button data-act="next" data-ic="next" aria-label="Next song"></button>
+  </div>
 </section>
 
 <div id="selbar" hidden>
@@ -155,7 +165,7 @@
 
 <dialog id="lyr">
   <form method="dialog">
-    <h3></h3><pre></pre><div class="lyr-src"></div>
+    <h3></h3><pre></pre><div class="lrc" hidden></div><div class="lyr-src"></div>
     <div class="dlg-btns"><button class="btn primary">Close</button></div>
   </form>
 </dialog>
@@ -182,6 +192,6 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=9"></script>
+<script type="module" src="app.js?v=10"></script>
 </body>
 </html>

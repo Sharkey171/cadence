@@ -47,6 +47,12 @@ const ICONS = {
   user: stroke('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.600-6 8-6s8 2 8 6"/>'),
   disc: stroke('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.500"/>'),
   x: stroke('<path d="M6 6l12 12M18 6 6 18"/>'),
+  moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
+  up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+  text: stroke('<path d="M4 6h16M4 11h12M4 16h16M4 21h8"/>'),
+  clock: stroke('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  save: stroke('<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'),
   edit: stroke('<path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4"/>'),
 };
 const ic = n => ICONS[n] || '';
@@ -339,10 +345,7 @@ async function loadCurrent(autoplay = true, startAt = 0) {
     S.loadedId = t.id;
     audio.src = curUrl;
     if (startAt) audio.addEventListener('loadedmetadata', () => { audio.currentTime = startAt; }, { once: true });
-    if (autoplay) {
-      await audio.play();
-      t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t);
-    }
+    if (autoplay) await audio.play();
     errStreak = 0;
   } catch (e) {
     if (token !== loadToken || e?.name === 'AbortError') return;
@@ -402,8 +405,21 @@ function enqueue(ids, nextUp) {
   toast(nextUp ? 'Playing next' : 'Added to queue'); saveState(); if (page() === 'queue') route();
 }
 
-audio.addEventListener('ended', () => { if (S.loadedId && audio.ended) next(true); });
-audio.addEventListener('play', syncPlayer);
+audio.addEventListener('ended', () => {
+  if (!S.loadedId || !audio.ended) return;
+  if (sleepEOT) {
+    setSleep(0, true); toast('Sleep timer ended');
+    if (S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(false); } else syncPlayer();
+    return;
+  }
+  next(true);
+});
+let countedLoad = 0;
+audio.addEventListener('play', () => {
+  const t = current();
+  if (S.loadedId && t && countedLoad !== loadToken) { countedLoad = loadToken; t.plays = (t.plays || 0) + 1; t.lastPlayed = Date.now(); idb.put('tracks', t); }
+  syncPlayer();
+});
 audio.addEventListener('pause', syncPlayer);
 audio.addEventListener('loadedmetadata', () => {
   const t = current();
@@ -430,6 +446,7 @@ function syncTime() {
 audio.addEventListener('timeupdate', () => {
   if (!S.loadedId) return;
   syncTime();
+  if (sleepAt && Date.now() >= sleepAt) { audio.pause(); setSleep(0, true); toast('Sleep timer ended'); }
   if (Date.now() - lastSave > 5000) saveState();
 });
 $$('.seek').forEach(s => {
@@ -539,13 +556,130 @@ function trackMenu(t, ev, ctx = {}) {
     { label: t.liked ? 'Remove from liked songs' : 'Like', icon: 'heart', fn: () => toggleLike(t.id) },
     t.album && { label: 'Go to album', icon: 'disc', fn: () => { closeNP(); location.hash = `#/album/${encodeURIComponent(t.albumKey)}`; } },
     { label: 'Go to artist', icon: 'user', fn: () => { closeNP(); location.hash = `#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`; } },
-    pl && { label: 'Remove from this playlist', icon: 'x', fn: async () => { pl.trackIds = pl.trackIds.filter(i => i !== t.id); await idb.put('playlists', pl); route(); } },
-    ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); route(); } },
+    ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
+    { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
+    { label: 'Edit info', icon: 'edit', fn: () => editInfo(t) },
+    pl && ctx.i > 0 && { label: 'Move up', icon: 'up', fn: () => movePl(pl, ctx.i, -1) },
+    pl && ctx.i != null && ctx.i < viewIds.length - 1 && { label: 'Move down', icon: 'dn', fn: () => movePl(pl, ctx.i, 1) },
+    ctx.queueOffset && ctx.i > 0 && { label: 'Move up', icon: 'up', fn: () => moveQ(ctx.queueOffset + ctx.i, -1) },
+    ctx.queueOffset && ctx.i != null && ctx.queueOffset + ctx.i < S.queue.length - 1 && { label: 'Move down', icon: 'dn', fn: () => moveQ(ctx.queueOffset + ctx.i, 1) },
+    pl && { label: 'Remove from this playlist', icon: 'x', fn: async () => { pl.trackIds = pl.trackIds.filter(i => i !== t.id); await idb.put('playlists', pl); rerender(); } },
+    ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); rerender(); } },
     { label: 'Delete from library', icon: 'trash', danger: true, fn: async () => {
       if (await ask({ title: 'Delete from library?', text: t.linked ? `“${t.title}” will be removed from Cadence. The file in your folder is not touched.` : `“${t.title}” will be removed from this device's Cadence library.`, ok: 'Delete', danger: true })) deleteTracks([t.id]);
     } },
   ], ev, `${t.title} · ${t.artist || 'Unknown artist'}`);
 }
+
+/* ---------------- sleep timer ---------------- */
+let sleepAt = 0, sleepEOT = false, sleepTimer = null;
+const sleepLabel = () => sleepEOT ? 'Sleep timer · end of song' : sleepAt ? `Sleep timer · ${Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000))} min left` : 'Sleep timer';
+function setSleep(min, quiet) {
+  clearTimeout(sleepTimer); sleepTimer = null; sleepAt = 0; sleepEOT = false;
+  if (min === 'eot') { sleepEOT = true; toast('Stopping after this song'); }
+  else if (min) {
+    sleepAt = Date.now() + min * 60000;
+    sleepTimer = setTimeout(() => { audio.pause(); setSleep(0, true); toast('Sleep timer ended'); }, min * 60000);
+    toast(`Stopping in ${min} minutes`);
+  } else if (!quiet) toast('Sleep timer off');
+  if (page() === 'queue') rerender();
+}
+function sleepMenu(e) {
+  openMenu([
+    ...[5, 15, 30, 45, 60, 90].map(m => ({ label: `${m} minutes`, icon: 'clock', fn: () => setSleep(m) })),
+    { label: 'End of this song', icon: 'note', fn: () => setSleep('eot') },
+    (sleepAt || sleepEOT) && { label: 'Turn off timer', icon: 'x', danger: true, fn: () => setSleep(0) },
+  ], e, sleepLabel());
+}
+
+/* ---------------- lyrics, editing, reordering ---------------- */
+async function showLyrics(t) {
+  let text = '';
+  try {
+    const mm = await import('./vendor/music-metadata.js');
+    const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true });
+    text = (meta.common.lyrics || []).map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n');
+  } catch (e) { console.warn('lyrics', e); }
+  const d = $('#lyr');
+  $('h3', d).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  $('pre', d).textContent = text.trim() || 'No lyrics are saved inside this file.';
+  d.showModal(); $('pre', d).scrollTop = 0;
+}
+async function editInfo(t) {
+  const d = $('#edit'), f = $('form', d).elements;
+  for (const k of ['title', 'artist', 'album', 'albumArtist']) f[k].value = t[k] || '';
+  f.trackNo.value = t.trackNo || '';
+  d.returnValue = 'cancel'; d.showModal(); f.title.focus();
+  await new Promise(r => d.addEventListener('close', r, { once: true }));
+  if (d.returnValue !== 'ok') return;
+  const oldArt = t.artId;
+  t.title = f.title.value.trim() || t.title;
+  for (const k of ['artist', 'album', 'albumArtist']) t[k] = f[k].value.trim();
+  t.trackNo = +f.trackNo.value || null;
+  t.albumKey = `${norm(t.albumArtist || t.artist)}::${norm(t.album)}`;
+  t.artId = t.album ? t.albumKey : `t::${t.id}`;
+  if (t.artId !== oldArt && !S.artUrls.has(t.artId)) {
+    const b = await idb.get('art', oldArt);
+    if (b) { await idb.put('art', b, t.artId); S.artUrls.set(t.artId, URL.createObjectURL(b)); }
+  }
+  await idb.put('tracks', t);
+  rebuild();
+  if (page() === 'album' && !S.albums.has(decodeURIComponent(location.hash.split('/')[2] || ''))) location.hash = `#/album/${encodeURIComponent(t.albumKey)}`;
+  else rerender();
+  syncPlayer(); toast('Saved');
+}
+async function movePl(p, i, d) {
+  const ids = p.trackIds.filter(id => S.tracks.has(id));
+  [ids[i], ids[i + d]] = [ids[i + d], ids[i]];
+  p.trackIds = ids; await idb.put('playlists', p); rerender();
+}
+function moveQ(i, d) { [S.queue[i], S.queue[i + d]] = [S.queue[i + d], S.queue[i]]; saveState(); rerender(); }
+
+/* ---------------- backup: carry playlists + likes between devices ---------------- */
+const sigOf = t => `${t.fileName}|${t.size}`;
+function exportBackup() {
+  const data = {
+    app: 'cadence', version: 1, exportedAt: new Date().toISOString(),
+    playlists: S.playlists.map(p => ({ name: p.name, tracks: p.trackIds.map(i => S.tracks.get(i)).filter(Boolean).map(sigOf) })),
+    liked: [...S.tracks.values()].filter(t => t.liked).sort((a, b) => a.liked - b.liked).map(sigOf),
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+  a.download = `cadence-backup-${data.exportedAt.slice(0, 10)}.json`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  toast('Backup file saved to your downloads');
+}
+async function importBackup(file) {
+  let d = null;
+  try { d = JSON.parse(await file.text()); } catch {}
+  if (!d || d.app !== 'cadence' || !Array.isArray(d.playlists)) return toast("That isn't a Cadence backup file");
+  const bySig = new Map([...S.tracks.values()].map(t => [sigOf(t), t]));
+  const missing = new Set(); let pls = 0, likes = 0;
+  for (const bp of d.playlists) {
+    const name = String(bp.name || 'Playlist').slice(0, 80);
+    let p = S.playlists.find(x => x.name === name);
+    if (!p) { p = { id: uid(), name, trackIds: [], createdAt: Date.now() + pls }; S.playlists.push(p); }
+    for (const sig of bp.tracks || []) {
+      const t = bySig.get(sig);
+      if (!t) missing.add(sig); else if (!p.trackIds.includes(t.id)) p.trackIds.push(t.id);
+    }
+    await idb.put('playlists', p); pls++;
+  }
+  for (const sig of d.liked || []) {
+    const t = bySig.get(sig);
+    if (!t) missing.add(sig); else if (!t.liked) { t.liked = Date.now() + likes; await idb.put('tracks', t); likes++; }
+  }
+  renderSidePlaylists(); rerender(); syncPlayer();
+  ask({ title: 'Backup restored', text: `${pls} playlist${pls === 1 ? '' : 's'} and ${likes} new like${likes === 1 ? '' : 's'} restored.` + (missing.size ? ` ${missing.size} song${missing.size === 1 ? ' is' : 's are'} not on this device and ${missing.size === 1 ? 'was' : 'were'} skipped — add the same files here, then restore again.` : '') });
+}
+
+/* ---------------- automatic playlists ---------------- */
+const MIXES = {
+  recent: { name: 'Recently added', icon: 'clock', bg: '#2a6f97,#1b3a4b', ids: () => [...S.tracks.values()].sort((a, b) => b.addedAt - a.addedAt || a.title.localeCompare(b.title)).slice(0, 100).map(t => t.id) },
+  top: { name: 'Most played', icon: 'note', bg: '#7b2cbf,#3c096c', ids: () => [...S.tracks.values()].filter(t => t.plays).sort((a, b) => b.plays - a.plays).slice(0, 100).map(t => t.id) },
+  history: { name: 'Recently played', icon: 'repeat', bg: '#2d6a4f,#1b4332', ids: () => [...S.tracks.values()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 100).map(t => t.id) },
+};
 
 /* ---------------- views ---------------- */
 function rowHTML(t, i, ctx) {
@@ -650,6 +784,7 @@ const VIEWS = {
   playlists() {
     setView(`<h1>Playlists</h1><div class="hero-actions" style="margin-bottom:16px"><button class="btn primary" data-act="new-playlist">${ic('plus')}New playlist</button></div>`,
       `<div class="grid"><a class="card" href="#/liked"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="card-title">Liked songs</div><div class="card-sub">${[...S.tracks.values()].filter(t => t.liked).length} songs</div></a>
+      ${Object.entries(MIXES).map(([k, m]) => `<a class="card" href="#/mix/${k}"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="card-title">${m.name}</div><div class="card-sub">Automatic</div></a>`).join('')}
       ${S.playlists.map(p => { const first = S.tracks.get(p.trackIds.find(i => S.tracks.has(i))); return `<a class="card" href="#/playlist/${p.id}">${artDiv(first?.artId, p.name, '', 'list')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${p.trackIds.filter(i => S.tracks.has(i)).length} songs</div></a>`; }).join('')}</div>`);
   },
   playlist(id) {
@@ -659,6 +794,13 @@ const VIEWS = {
     setView(`<div class="hero">${artDiv(ts[0]?.artId, p.name, '', 'list')}<div class="hero-text"><div class="kind">Playlist</div><h1>${esc(p.name)}</h1>
       <div class="muted">${total(ts)}</div>${heroActions(`<button class="icon-btn" data-act="playlist-menu" data-id="${p.id}" aria-label="More">${ic('dots')}</button>`)}</div></div>`,
       ts.length ? trackList(viewIds, { playlistId: p.id }) : '<div class="empty">This playlist is empty. Use the ⋯ menu on any song to add it.</div>');
+  },
+  mix(kind) {
+    const m = MIXES[kind]; if (!m) return setView('<div class="empty">Not found.</div>');
+    viewIds = m.ids();
+    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="hero-text"><div class="kind">Automatic playlist</div><h1>${m.name}</h1>
+      <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More">${ic('dots')}</button>`) : ''}</div></div>`,
+      viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
   search() {
     const q = norm(S.q.trim());
@@ -679,7 +821,7 @@ const VIEWS = {
     const t = current();
     if (!t) return setView('<h1>Queue</h1><div class="empty">Nothing is queued. Play something to get started.</div>');
     const upcoming = S.queue.slice(S.qIndex + 1);
-    setView('<h1>Queue</h1><h2>Now playing</h2>', trackList([t.id], { nowRow: true }),
+    setView(`<h1>Queue</h1><div class="hero-actions"><button class="btn ${sleepAt || sleepEOT ? 'primary' : ''}" data-act="sleep">${ic('moon')}${sleepLabel()}</button></div><h2>Now playing</h2>`, trackList([t.id], { nowRow: true }),
       upcoming.length ? '<h2>Next up</h2>' : '', upcoming.length ? trackList(upcoming, { queueOffset: S.qIndex + 1 }) : null);
   },
   async settings() {
@@ -693,6 +835,8 @@ const VIEWS = {
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
         <button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div>`,
+      `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
+        <div class="hero-actions"><button class="btn" data-act="export">${ic('save')}Save backup file</button><button class="btn" data-act="import-backup">${ic('up')}Restore from file</button></div></div>`,
       installEvt ? `<div class="settings-block"><h2>Install</h2><p>Install Cadence as an app with its own window and icon.</p><button class="btn primary" data-act="install">Install app</button></div>` : '',
     );
   },
@@ -703,10 +847,11 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { album: 'library', artist: 'library', playlist: 'playlists' }[p] || p;
+  const navKey = { album: 'library', artist: 'library', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
 }
+function rerender() { const y = view.scrollTop; route(); view.scrollTop = y; }
 let lastHash = '';
 addEventListener('hashchange', () => {
   const samePage = lastHash.split('/')[1] === page();
@@ -768,7 +913,10 @@ const A = {
   'toggle': toggle, 'next': () => next(), 'prev': prev, 'shuffle': toggleShuffle, 'repeat': cycleRepeat,
   'like-current': () => { const t = current(); if (t) toggleLike(t.id); },
   'open-np': openNP, 'close-np': closeNP,
-  'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e); },
+  'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e, { np: true }); },
+  'sleep': (el, e) => sleepMenu(e),
+  'export': exportBackup,
+  'import-backup': () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json'; i.onchange = () => i.files[0] && importBackup(i.files[0]); i.click(); },
   'reconnect': async () => {
     for (const f of S.folders) { try { await f.handle.requestPermission({ mode: 'read' }); } catch {} }
     if (await checkFolderAccess()) toast('Folder reconnected');
@@ -837,6 +985,11 @@ async function boot() {
   lastHash = location.hash; route();
   checkFolderAccess();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+    const hadSW = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadSW) return;
+      if (playing()) toast('Update ready — reopen Cadence to get it'); else location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('offline support unavailable', e));
   }
 }

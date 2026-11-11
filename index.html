@@ -120,6 +120,28 @@
   </form>
 </dialog>
 
+<dialog id="lyr">
+  <form method="dialog">
+    <h3></h3><pre></pre>
+    <div class="dlg-btns"><button class="btn primary">Close</button></div>
+  </form>
+</dialog>
+
+<dialog id="edit">
+  <form method="dialog">
+    <h3>Edit song info</h3>
+    <label>Title<input name="title" type="text" required maxlength="200"></label>
+    <label>Artist<input name="artist" type="text" maxlength="200"></label>
+    <label>Album<input name="album" type="text" maxlength="200"></label>
+    <label>Album artist<input name="albumArtist" type="text" maxlength="200"></label>
+    <label>Track number<input name="trackNo" type="number" min="0" max="999" inputmode="numeric"></label>
+    <div class="dlg-btns">
+      <button value="ok" class="btn primary">Save</button>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>

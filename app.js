@@ -99,7 +99,7 @@ const S = {
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
-  volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
+  radCC: null, radTag: '', volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
@@ -1070,10 +1070,52 @@ async function searchPods(q) {
   const r = (d.results || []).filter(x => x.collectionId && x.collectionName).map(podFrom);
   podSearchMem.set(q, r); return r;
 }
+const hashStr = str => { let h = 5381; for (const c of String(str)) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0; return h.toString(36); };
+// Read a podcast straight from its RSS feed. Works for any show whose host lets web apps read the feed.
+async function loadFeed(url) {
+  const res = await fetch(url); if (!res.ok) throw new Error('HTTP ' + res.status);
+  const doc = new DOMParser().parseFromString(await res.text(), 'text/xml'), ch = doc.querySelector('channel');
+  if (!ch) throw new Error('not a podcast feed');
+  const kid = (el, name, itunes) => [...el.children].find(c => c.localName === name && (itunes ? c.prefix === 'itunes' : !c.prefix));
+  const txt = (el, name, itunes) => kid(el, name, itunes)?.textContent?.trim() || '';
+  const id = 'rss:' + url;
+  const pod = { id, name: txt(ch, 'title') || url, author: txt(ch, 'author', true), art: kid(ch, 'image', true)?.getAttribute('href') || kid(ch, 'image')?.querySelector('url')?.textContent?.trim() || '', feed: url };
+  const eps = [...ch.children].filter(c => c.localName === 'item').map(it => {
+    const u = (kid(it, 'enclosure')?.getAttribute('url') || '').replace(/^http:/i, 'https:');
+    if (!/^https:\/\//i.test(u)) return null;
+    const d = new Date(txt(it, 'pubDate')), okDate = !isNaN(d);
+    return {
+      id: `ep:r${hashStr(url)}:${hashStr(txt(it, 'guid') || u)}`, kind: 'episode', podId: id, date: okDate ? d.toISOString() : '',
+      title: txt(it, 'title') || 'Untitled episode', artist: pod.name, album: okDate ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+      url: u, duration: iaSecs(txt(it, 'duration', true)), art: pod.art, artId: 'r:pod:' + id, desc: txt(it, 'description').replace(/<[^>]+>/g, '').slice(0, 3000),
+    };
+  }).filter(Boolean).sort((a, b) => (b.date > a.date) - (b.date < a.date)).slice(0, 300);
+  return { at: Date.now(), pod, eps };
+}
+async function addFeed() {
+  const url = (await ask({ title: 'Add a podcast by its feed address', text: 'Paste the show\'s RSS feed address. Most podcast websites list it as “RSS” or “Feed”.', input: 'https://', ok: 'Add' }) || '').trim();
+  if (!url) return;
+  if (!/^https:\/\/\S+\.\S+/i.test(url)) return toast('That doesn\'t look like a feed address (it should start with https://)');
+  if (!navigator.onLine) return toast('Connect to the internet to add a podcast');
+  toast('Reading the feed…');
+  try {
+    const data = await loadFeed(url);
+    if (!data.eps.length) throw new Error('no episodes');
+    for (const e of data.eps) reg(S.saved[e.id] || S.dl[e.id] || e);
+    podMem.set(data.pod.id, data); await idb.put('kv', data, 'pod:' + data.pod.id);
+    if (!S.pods.some(p => p.id === data.pod.id)) { S.pods.push({ ...data.pod, seen: data.eps[0].date }); await idb.put('kv', S.pods, 'pods'); }
+    location.hash = `#/podcast/${encodeURIComponent(data.pod.id)}`;
+  } catch (e) {
+    console.warn('feed', e);
+    ask({ title: 'Couldn\'t add that feed', text: 'Either the address isn\'t a podcast feed, or the show\'s host doesn\'t let web apps read it directly. Try searching for the show by name instead.', ok: 'OK' });
+  }
+}
 async function loadPodcast(id, maxAge = 30 * 60000) {
   let data = podMem.get(id) || await idb.get('kv', 'pod:' + id).catch(() => null);
   if (navigator.onLine && (!data || Date.now() - data.at > maxAge)) {
     try {
+      if (id.startsWith('rss:')) data = await loadFeed(id.slice(4));
+      else {
       const d = await fetchJSON('https://itunes.apple.com/lookup?' + new URLSearchParams({ id, media: 'podcast', entity: 'podcastEpisode', limit: 200 }));
       const head = (d.results || []).find(r => r.kind === 'podcast');
       if (!head) throw new Error('not found');
@@ -1085,6 +1127,7 @@ async function loadPodcast(id, maxAge = 30 * 60000) {
         desc: String(r.description || r.shortDescription || '').slice(0, 3000),
       }));
       data = { at: Date.now(), pod, eps };
+      }
       idb.put('kv', data, 'pod:' + id).catch(() => {});
     } catch (e) { if (!data) throw e; }
   }
@@ -1104,7 +1147,7 @@ function drawPodcast({ pod, eps }) {
 async function podcastsView() {
   const here = location.hash, dls = Object.values(S.dl).filter(x => x.kind === 'episode');
   viewIds = dls.map(e => e.id);
-  setView('<h1>Online</h1>', onlineChips('podcasts'), searchForm('pod', S.podQ, 'Search free podcasts'), '<div id="pod-results"></div>',
+  setView('<h1>Online</h1>', onlineChips('podcasts'), searchForm('pod', S.podQ, 'Search free podcasts'), `<div class="hero-actions" style="margin:0 0 8px"><button class="btn" data-act="add-feed" aria-label="Add any podcast using its RSS feed address">${ic('plus')}Add by feed address</button></div>`, '<div id="pod-results"></div>',
     S.pods.length ? `<h2>Your podcasts</h2><div class="grid">${S.pods.map(podCard).join('')}</div>` : '',
     dls.length ? '<h2>Downloaded episodes</h2>' : '', dls.length ? trackList(viewIds) : null, '<div id="pod-top"></div>');
   const fill = (sel, html) => { const el = $(sel); if (el && location.hash === here) el.innerHTML = html; };
@@ -1158,9 +1201,10 @@ async function rb(path) {
 const regionName = (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(CC) || ''; } catch { return ''; } })();
 const hlsOK = !!audio.canPlayType('application/vnd.apple.mpegurl');
 async function radioList(q) {
-  const key = q || '@' + CC; if (radMem.has(key)) return radMem.get(key);
-  const p = new URLSearchParams({ limit: 80, hidebroken: 'true', order: 'clickcount', reverse: 'true', is_https: 'true' });
-  if (q) p.set('name', q); else p.set('countrycode', CC);
+  const cc = S.radCC ?? CC, tag = S.radTag;
+  const key = q ? 'q:' + q : `@${cc}|${tag}`; if (radMem.has(key)) return radMem.get(key);
+  const p = new URLSearchParams({ limit: 150, hidebroken: 'true', order: 'clickcount', reverse: 'true', is_https: 'true' });
+  if (q) p.set('name', q); else { if (cc) p.set('countrycode', cc); if (tag) p.set('tag', tag); }
   const seen = new Set();
   const list = (await rb('/json/stations/search?' + p)).filter(r => r.stationuuid && (!r.hls || hlsOK) && /^https:/i.test(r.url_resolved || '')).map(r => ({
     id: 'st:' + r.stationuuid, kind: 'station', live: true, title: String(r.name || '').trim().slice(0, 120),
@@ -1182,11 +1226,42 @@ async function toggleStation(t) {
   if (S.saved[t.id]) keep(t);
   syncPlayer(); if (page() === 'online' || page() === 'queue') rerender();
 }
+function radioCountryOptions() {
+  const cur = S.radCC ?? CC, list = rbCountries || [{ cc: cur, name: regionName || cur }].filter(c => c.cc);
+  return `<option value="" ${cur === '' ? 'selected' : ''}>Worldwide</option>` + list.map(c => `<option value="${esc(c.cc)}" ${c.cc === cur ? 'selected' : ''}>${esc(c.name)}${c.n ? ` (${c.n})` : ''}</option>`).join('');
+}
+const RADIO_TAGS = ['pop', 'rock', 'news', 'talk', 'sports', 'hits', 'dance', 'classical', 'jazz', 'country', 'folk', 'oldies', '80s', '90s', 'chillout'];
+let rbCountries = null;
+async function radioCountries() {
+  if (rbCountries) return rbCountries;
+  let list = await idb.get('kv', 'rbCountries').catch(() => null);
+  if (!list) {
+    list = (await rb('/json/countries?order=name&hidebroken=true')).filter(c => c.iso_3166_1 && c.name && c.stationcount > 0).map(c => ({ cc: c.iso_3166_1.toUpperCase(), name: c.name, n: c.stationcount }));
+    idb.put('kv', list, 'rbCountries').catch(() => {});
+  }
+  return rbCountries = list;
+}
+const saveRadioPrefs = () => idb.put('kv', { cc: S.radCC, tag: S.radTag }, 'radioPrefs').catch(() => {});
+async function addStation() {
+  const url = (await ask({ title: 'Add a station by its address', text: 'Paste the station\'s stream address. Station websites often list it as “stream URL” or “listen link”.', input: 'https://', ok: 'Next' }) || '').trim();
+  if (!url) return;
+  if (!/^https:\/\/\S+\.\S+/i.test(url)) return toast('The address must start with https://');
+  let host = 'My station'; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+  const name = await ask({ title: 'Name this station', input: host, ok: 'Add' }); if (!name) return;
+  const h = hashStr(url), id = 'st:custom:' + h;
+  if (S.stations.some(x => x.id === id)) return toast('That station is already in your favourites');
+  S.stations.push(reg({ id, kind: 'station', live: true, title: name, artist: 'Added by you', album: 'Live radio', url, art: '', artId: 'r:st:custom:' + h, liked: Date.now() }));
+  await idb.put('kv', S.stations, 'stations'); toast('Station added to your favourites'); rerender();
+}
+view.addEventListener('change', e => { if (e.target.id === 'rad-cc') { S.radCC = e.target.value; saveRadioPrefs(); rerender(); } });
 async function radioView() {
   const here = location.hash, favs = S.stations.map(x => x.id);
   setView('<h1>Online</h1>', onlineChips('radio'), searchForm('rad', S.radQ, 'Search radio stations by name'),
     favs.length ? '<h2>Favourite stations</h2>' : '', favs.length ? trackList(favs) : null,
-    `<h2>${S.radQ ? `Stations matching “${esc(S.radQ)}”` : 'Popular in your country'}</h2>`, '<div id="rad-list"><p class="muted">Loading stations…</p></div>');
+    `<div class="hero-actions" style="margin:0 0 8px"><select id="rad-cc" aria-label="Country">${radioCountryOptions()}</select><button class="btn" data-act="add-station" aria-label="Add any station using its stream address">${ic('plus')}Add by address</button></div>
+     <div class="chips"><button class="chip ${S.radTag ? '' : 'active'}" data-act="rad-tag" data-tag="">All</button>${RADIO_TAGS.map(t => `<button class="chip ${S.radTag === t ? 'active' : ''}" data-act="rad-tag" data-tag="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+     <h2>${S.radQ ? `Stations matching “${esc(S.radQ)}”` : 'Most popular'}</h2>`, '<div id="rad-list"><p class="muted">Loading stations…</p></div>');
+  radioCountries().then(() => { const sel = $('#rad-cc'); if (sel && location.hash === here && sel.options.length < 5) sel.innerHTML = radioCountryOptions(); }).catch(() => {});
   let node;
   try {
     const list = (await radioList(S.radQ)).map(st => S.remote.get(st.id)?.liked ? S.remote.get(st.id) : reg(st));
@@ -1743,6 +1818,8 @@ const A = {
   },
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
+  'add-feed': addFeed, 'add-station': addStation,
+  'rad-tag': el => { S.radTag = el.dataset.tag; S.radQ = ''; saveRadioPrefs(); rerender(); },
   'car-on': () => carMode(true), 'car-exit': () => carMode(false),
   'stat-p': el => { S.statP = +el.dataset.d; rerender(); },
   'theme-mode': el => { S.theme.mode = el.dataset.mode; applyTheme(); rerender(); },
@@ -1881,6 +1958,7 @@ async function boot() {
   for (const x of state?.remote || []) reg(x);
   for (const x of Object.values(S.dl)) reg(x);
   for (const x of S.stations) reg(x);
+  { const rp = await idb.get('kv', 'radioPrefs'); if (rp) { S.radCC = rp.cc ?? null; S.radTag = rp.tag || ''; } }
   S.saved = await idb.get('kv', 'saved') || {};
   for (const x of Object.values(S.saved)) reg(x);
   for (const t of tracks) S.tracks.set(t.id, t);

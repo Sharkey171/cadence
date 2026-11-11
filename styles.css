@@ -332,3 +332,5 @@ body.dragging::after { color: #fff; }
 .bio a { color: var(--accent); white-space: nowrap; }
 .badge { position: absolute; top: 18px; left: 18px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .05em; }
 @media (max-width: 768px) { .bar-row { grid-template-columns: minmax(0, 1fr) 70px 30px; } .badge { top: 14px; left: 14px; } }
+
+#view .hero-actions select { background: var(--raised); color: var(--text); border: 0; border-radius: 999px; padding: 9px 14px; font: inherit; font-weight: 600; max-width: 240px; }

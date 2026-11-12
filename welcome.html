@@ -63,7 +63,8 @@
   .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
   .shots { display: flex; gap: 18px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 6px 2px 18px; scrollbar-width: thin; }
   .shots figure { margin: 0; flex: none; width: 230px; scroll-snap-align: start; }
-  .shots img { width: 100%; border-radius: 22px; border: 5px solid #22222b; display: block; }
+  .shots img { width: 100%; height: auto; aspect-ratio: 9 / 16; border-radius: 22px; border: 5px solid #22222b; display: block; background: #000; }
+  .shots figure { width: min(230px, 62vw); }
   .shots figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; text-align: center; }
   .install { background: var(--panel); border-radius: 22px; padding: 26px; border: 1px solid #ffffff0d; }
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }

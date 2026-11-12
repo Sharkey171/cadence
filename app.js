@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 const LINKS = {
-  feedback: '',   // Google Form for "Send feedback" (button hidden until set)
-  donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
+  feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
+  donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 31, date: '2026-11-12', notes: ['Send feedback and Support the app are now switched on in Settings'] },
   { v: 30, date: '2026-11-12', notes: ['Cadence in nine languages: English, Irish, Spanish, French, German, Polish, Portuguese, Italian and Dutch (Settings → Language)'] },
   { v: 29, date: '2026-11-12', notes: ['Share playlists as a link: the songs your friend has play from their own library, the rest open on YouTube Music'] },
   { v: 28, date: '2026-11-12', notes: ['Song radio: start from any song (⋯ → Song radio) or artist (Radio button) for an endless mix of similar music from your library'] },

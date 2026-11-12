@@ -13,6 +13,24 @@ const fmt = s => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 };
 const hue = str => { let h = 0; for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+// Smart shuffle: songs heard in the last day go to the back, and the same artist is kept apart.
+let smartShuffleOn = true;
+function smartShuffle(ids) {
+  if (!smartShuffleOn || ids.length < 3) return shuffleArr(ids);
+  const now = Date.now(), fresh = [], heard = [];
+  for (const id of ids) { const t = S.tracks.get(id); (t && t.lastPlayed && now - t.lastPlayed < 864e5 ? heard : fresh).push(id); }
+  const spread = list => {   // shuffle, then avoid the same artist twice in a row where possible
+    shuffleArr(list); const out = [];
+    while (list.length) {
+      const last = out.length ? norm(T(out[out.length - 1])?.artist) : null;
+      let k = list.findIndex(id => norm(T(id)?.artist) !== last); if (k < 0) k = 0;
+      out.push(list.splice(k, 1)[0]);
+      if (out.length > 400) { out.push(...list); break; }   // very long lists: the rest stays simply shuffled
+    }
+    return out;
+  };
+  return [...spread(fresh), ...spread(heard)];
+}
 const shuffleArr = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const AUDIO_EXT = /\.(mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|weba)$/i;
 const isDesktop = () => matchMedia('(min-width: 769px)').matches;
@@ -59,6 +77,8 @@ const ICONS = {
   out: stroke('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
   yt: stroke('<rect x="2.500" y="5" width="19" height="14" rx="4"/><path d="M10 9.500v5l4.500-2.500z" fill="currentColor"/>'),
   share: stroke('<circle cx="18" cy="5" r="2.500"/><circle cx="6" cy="12" r="2.500"/><circle cx="18" cy="19" r="2.500"/><path d="M8.200 10.900l7.600-4.600M8.200 13.100l7.600 4.600"/>'),
+  star: stroke('<path d="M12 3.500l2.600 5.300 5.900.900-4.300 4.100 1 5.800L12 16.800l-5.200 2.800 1-5.800-4.300-4.100 5.900-.900z"/>'),
+  qr: stroke('<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -104,7 +124,7 @@ const S = {
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
   hide: { folders: [], minSecs: 0 }, shownList: [],
   radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
-  fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false, viz: 'bars' },
+  fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false, viz: 'bars', smartShuffle: true },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
 const T = id => S.tracks.get(id) || S.remote.get(id);
@@ -112,12 +132,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 37, date: '2026-11-13', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
   { v: 36, date: '2026-11-12', notes: ['Now Playing animations: Bars, Wave, Ring or Pulse, moving with the music (⋯ on Now Playing, or Settings → Appearance)', 'Little dancing bars on the song that is playing'] },
   { v: 35, date: '2026-11-12', notes: ['Fixed stretched screenshots on the welcome page on phones'] },
   { v: 34, date: '2026-11-12', notes: ['A welcome page that explains Seylumi and how to install it, and picture previews when you share a link'] },
@@ -162,6 +183,9 @@ const TR_PATTERNS = [
   [/^Reading song details… (\d+) \/ (\d+)$/, m => P('reading', { a: m[1], b: m[2] })],
   [/^(.+): (On|Off)$/, m => I18N.d[m[1]] ? `${I18N.d[m[1]]}: ${I18N.d[m[2]]}` : null],
   [/^Animation: (Off|Bars|Wave|Ring|Pulse)$/, m => `${I18N.d['Now Playing animation'] || 'Animation'}: ${I18N.d[m[1]]}`],
+  [/^Rated ([1-5]) stars or more$/, m => P('ratedmin', { n: m[1] })],
+  [/^Rated ([★☆]{5})$/, m => P('rated', { x: m[1] })],
+  [/^Rating: ([★☆]{5})$/, m => P('rating', { x: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -258,6 +282,7 @@ function applyTheme() {
   const r = document.documentElement, th = THEMES[S.theme.mode] || THEMES.dark;
   r.dataset.theme = S.theme.mode; r.dataset.tone = th.tone; r.style.setProperty('--accent', S.theme.accent);
   $('meta[name=theme-color]').content = th.bg;
+  document.documentElement.style.zoom = { large: 1.12, xl: 1.25 }[S.theme.text] || '';
   try { localStorage.setItem('cadence-theme', JSON.stringify(S.theme)); } catch {}
   tintFor = null; if (S.theme.auto && appReady) syncTint();
 }
@@ -307,6 +332,7 @@ const SORTS = {
   artist: (a, b) => (a.artist || '').localeCompare(b.artist || '') || (a.album || '').localeCompare(b.album || '') || (a.trackNo || 0) - (b.trackNo || 0),
   album: (a, b) => (a.album || '').localeCompare(b.album || '') || (a.discNo || 1) - (b.discNo || 1) || (a.trackNo || 0) - (b.trackNo || 0),
   recent: (a, b) => b.addedAt - a.addedAt,
+  rating: (a, b) => (b.rating || 0) - (a.rating || 0) || a.title.localeCompare(b.title),
 };
 const allSongIds = () => [...shown()].sort(SORTS[S.sort] || SORTS.title).map(t => t.id);
 
@@ -738,7 +764,7 @@ function applyEq() {
   eqNodes.forEach((n, i) => { n.gain.value = S.fx.eq ? S.fx.bands[i] : 0; });
   preGain.gain.value = S.fx.eq ? Math.pow(10, -Math.max(0, ...S.fx.bands) / 20) : 1;   // headroom so boosts don't distort
 }
-const saveFx = () => idb.put('kv', S.fx, 'fx').catch(() => {});
+const saveFx = () => { smartShuffleOn = S.fx.smartShuffle !== false; return idb.put('kv', S.fx, 'fx').catch(() => {}); };
 let quietSince = 0, skipping = false;
 setInterval(() => {
   const t = current();
@@ -869,7 +895,7 @@ function playContext(ids, i = 0, keepRadio = false) {
   ids = ids.filter(has); if (!ids.length) return;
   i = Math.max(0, Math.min(i, ids.length - 1));
   S.baseQueue = [...ids];
-  if (S.shuffle) { const first = ids[i]; const rest = ids.filter((_, j) => j !== i); S.queue = [first, ...shuffleArr(rest)]; S.qIndex = 0; }
+  if (S.shuffle) { const first = ids[i]; const rest = ids.filter((_, j) => j !== i); S.queue = [first, ...smartShuffle(rest)]; S.qIndex = 0; }
   else { S.queue = [...ids]; S.qIndex = i; }
   loadCurrent(true);
 }
@@ -947,7 +973,7 @@ function seekBy(secs) { if (S.loadedId && isFinite(audio.duration)) audio.curren
 function toggleShuffle() {
   S.shuffle = !S.shuffle;
   const cur = S.queue[S.qIndex];
-  if (S.shuffle) S.queue = [...S.queue.slice(0, S.qIndex + 1), ...shuffleArr(S.queue.slice(S.qIndex + 1))];
+  if (S.shuffle) S.queue = [...S.queue.slice(0, S.qIndex + 1), ...smartShuffle(S.queue.slice(S.qIndex + 1))];
   else if (S.baseQueue) { const i = S.baseQueue.indexOf(cur); if (i >= 0) { S.queue = [...S.baseQueue]; S.qIndex = i; } }
   dropPrepared(); syncPlayer(); saveState(); if (page() === 'queue') route();
 }
@@ -1057,6 +1083,7 @@ function syncPlayer() {
   { const tip = !t ? '' : !t.url ? `See all songs by ${t.artist || 'this artist'}` : t.kind === 'episode' ? 'Go to this podcast' : t.kind === 'ia' ? 'Go to this recording' : 'Go to radio'; for (const el of [$('#p-artist'), $('#np-artist')]) el.setAttribute('aria-label', tip); }
   $('#np-title').textContent = t ? t.title : '';
   $('#np-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
+  { const r = $('#np-rating'); r.hidden = !t || !!t.url; if (t && !t.url) { r.textContent = stars(t.rating || 0); r.classList.toggle('unrated', !t.rating); r.setAttribute('aria-label', t.rating ? `Rated ${t.rating} of 5 — change rating` : 'Rate this song'); } }
   $('#car-title').textContent = t ? t.title : 'Nothing playing'; $('#car-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   setArt($('#p-art'), t); setArt($('#np-art'), t);
   const u = t && S.artUrls.get(t.artId);
@@ -1165,6 +1192,7 @@ function trackMenu(t, ev, ctx = {}) {
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
     ctx.np && { label: `Animation: ${(VIZ.find(v => v[0] === S.fx.viz) || VIZ[0])[1]}`, icon: 'spark', fn: () => openMenu(VIZ.map(([k, l]) => ({ label: l + (S.fx.viz === k ? '  ✓' : ''), icon: k === 'off' ? 'x' : 'spark', fn: () => setViz(k) })), null, 'Now Playing animation') },
     ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => nav('#/settings') },
+    { label: t.rating ? `Rating: ${stars(t.rating)}` : 'Rate this song', icon: 'star', fn: () => rateMenu(t) },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
     !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
       if (!navigator.onLine) return toast('Connect to the internet to look up covers');
@@ -1416,6 +1444,7 @@ function exportBackup() {
     app: 'cadence', version: 1, exportedAt: new Date().toISOString(),
     playlists: S.playlists.map(p => ({ name: p.name, smart: p.smart, tracks: p.trackIds.map(i => S.tracks.get(i)).filter(Boolean).map(sigOf) })),
     liked: [...S.tracks.values()].filter(t => t.liked).sort((a, b) => a.liked - b.liked).map(sigOf),
+    ratings: Object.fromEntries([...S.tracks.values()].filter(t => t.rating).map(t => [sigOf(t), t.rating])),
   };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
@@ -1440,6 +1469,7 @@ async function importBackup(file) {
     }
     await idb.put('playlists', p); pls++;
   }
+  for (const [sig, n] of Object.entries(d.ratings || {})) { const t = bySig.get(sig); if (t && n >= 1 && n <= 5 && t.rating !== +n) { t.rating = +n; await idb.put('tracks', t); } }
   for (const sig of d.liked || []) {
     const t = bySig.get(sig);
     if (!t) missing.add(sig); else if (!t.liked) { t.liked = Date.now() + likes; await idb.put('tracks', t); likes++; }
@@ -2037,6 +2067,31 @@ function matchShared(items) {
   });
 }
 
+/* ---------------- star ratings ---------------- */
+const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+async function setRating(t, n) {
+  t.rating = n || 0; await idb.put('tracks', t);
+  toast(n ? `Rated ${stars(n)}` : 'Rating cleared'); syncPlayer();
+  if (['library', 'playlist', 'album', 'artist'].includes(page())) rerender();
+}
+function rateMenu(t) {
+  openMenu([5, 4, 3, 2, 1].map(n => ({ label: stars(n) + (t.rating === n ? '  ✓' : ''), icon: 'star', fn: () => setRating(t, n) }))
+    .concat(t.rating ? [{ label: 'Clear rating', icon: 'x', fn: () => setRating(t, 0) }] : []), null, `${t.title} · ${t.artist || 'Unknown artist'}`);
+}
+
+/* ---------------- share Seylumi (QR code) ---------------- */
+const APP_LINK = 'https://sharkey171.github.io/cadence/welcome.html';
+async function shareApp() {
+  let svg = '';
+  try {
+    const qrcode = (await import('./vendor/qr.js')).default, q = qrcode(0, 'M'); q.addData(APP_LINK); q.make();
+    svg = q.createSvgTag({ cellSize: 6, margin: 3, scalable: true });
+  } catch (e) { console.warn('qr', e); }
+  const d = $('#share-app');
+  $('.qr', d).innerHTML = svg || '<p class="muted">The code couldn’t be made offline. Use the button below.</p>';
+  d.showModal();
+}
+
 /* ---------------- selecting several songs ---------------- */
 function syncSel() {
   if (S.sel.size && $('#selbar').hidden) overlayOpened(); else if (!S.sel.size && !$('#selbar').hidden) overlayClosed();
@@ -2078,22 +2133,24 @@ view.addEventListener('click', e => { if (e.target.closest('.grip')) e.stopPropa
 
 /* ---------------- smart playlists ---------------- */
 const SMART = {
+  rated: ['Star rating', 'At least this many stars (1 to 5)', '4'],
   never: ['Never played'], stale: ['Not played for a while', 'Days since it was last played', '90'], recent: ['Recently added', 'Added within this many days', '30'],
   top: ['Most played'], genre: ['Genre', 'Genre contains', ''], artist: ['Artist', 'Artist name contains', ''], decade: ['Decade', 'Decade, for example 1990', '1990'], any: ['All songs'],
 };
 function smartText(p) {
   const r = p.smart, v = r.value;
-  const base = { never: 'Never played', stale: `Not played in ${v} days`, recent: `Added in the last ${v} days`, top: 'Most played', genre: `Genre: ${v}`, artist: `Artist: ${v}`, decade: `${Math.floor((parseInt(v) || 0) / 10) * 10}s`, any: 'All songs' }[r.type] || '';
+  const base = { rated: `Rated ${Math.max(1, Math.min(5, parseInt(v) || 4))} stars or more`, never: 'Never played', stale: `Not played in ${v} days`, recent: `Added in the last ${v} days`, top: 'Most played', genre: `Genre: ${v}`, artist: `Artist: ${v}`, decade: `${Math.floor((parseInt(v) || 0) / 10) * 10}s`, any: 'All songs' }[r.type] || '';
   return base + (r.liked ? ', liked only' : '');
 }
 function smartIds(p) {
   const r = p.smart, now = Date.now(), day = 864e5, n = parseFloat(r.value) || 0, v = norm(r.value);
   const test = {
+    rated: t => (t.rating || 0) >= Math.max(1, Math.min(5, n || 4)),
     never: t => !t.plays, stale: t => t.plays > 0 && now - t.lastPlayed > n * day, recent: t => now - t.addedAt < n * day, top: t => t.plays > 0,
     genre: t => !!v && norm(t.genre).includes(v), artist: t => !!v && norm(`${t.artist} ${t.albumArtist}`).includes(v),
     decade: t => !!t.year && Math.floor(t.year / 10) === Math.floor(n / 10),
   }[r.type] || (() => true);
-  const order = { top: (a, b) => b.plays - a.plays, recent: (a, b) => b.addedAt - a.addedAt, stale: (a, b) => a.lastPlayed - b.lastPlayed }[r.type] || SORTS.artist;
+  const order = { top: (a, b) => b.plays - a.plays, recent: (a, b) => b.addedAt - a.addedAt, stale: (a, b) => a.lastPlayed - b.lastPlayed, rated: SORTS.rating }[r.type] || SORTS.artist;
   return [...shown()].filter(t => test(t) && (!r.liked || t.liked)).sort(order).slice(0, 500).map(t => t.id);
 }
 async function newSmart() {
@@ -2166,7 +2223,7 @@ function soundSettings() {
     <div class="eq">${EQ_LABELS.map((l, i) => `<label><span>${l}</span><input type="range" min="-12" max="12" step="1" value="${S.fx.bands[i]}" data-fx="band" data-i="${i}" style="--p:${(S.fx.bands[i] + 12) / 24 * 100}%" aria-label="${l}"><b>${dB(S.fx.bands[i])}</b></label>`).join('')}</div>
     <p>The equalizer works on your own music files and downloads. Radio and streamed podcasts play unchanged.</p>
     <div class="eq"><label><span>Crossfade</span><input type="range" min="0" max="12" step="1" value="${x}" data-fx="xfade" style="--p:${x / 12 * 100}%" aria-label="Seconds of overlap between songs"><b>${x ? x + ' s' : 'Off'}</b></label></div>
-    <div class="hero-actions">${onOff('gapless', 'Gapless playback', 'Open the next song early so there is no pause between songs')}${onOff('level', 'Even out volume', 'Turn loud songs down so songs play at a similar volume')}</div>
+    <div class="hero-actions">${onOff('smartShuffle', 'Smart shuffle', 'Shuffle plays songs you haven’t heard today first, and keeps the same artist apart')}${onOff('gapless', 'Gapless playback', 'Open the next song early so there is no pause between songs')}${onOff('level', 'Even out volume', 'Turn loud songs down so songs play at a similar volume')}</div>
     <h2 style="margin-top:22px">Podcasts</h2>
     <div class="hero-actions"><select data-fx="rate" aria-label="Podcast speed">${[0.75, 1, 1.25, 1.5, 1.75, 2].map(r => `<option value="${r}" ${r === S.fx.rate ? 'selected' : ''}>Speed ${r}×</option>`).join('')}</select>${onOff('skipSilence', 'Skip silences', 'Speed through silent gaps in downloaded episodes')}</div>
     <p>Skipping silences works on downloaded episodes.</p></div>`;
@@ -2261,7 +2318,7 @@ const VIEWS = {
   library(tab = 'songs') {
     if (!S.tracks.size) return setView(emptyLib());
     const chips = `<div class="chips">${['songs', 'albums', 'artists', 'folders', 'genres', 'decades'].map(c => `<a class="chip ${c === tab ? 'active' : ''}" href="#/library/${c}">${c[0].toUpperCase() + c.slice(1)}</a>`).join('')}
-      ${tab === 'songs' ? `<select id="sort" aria-label="Sort songs">${[['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['recent', 'Recently added']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>`;
+      ${tab === 'songs' ? `<select id="sort" aria-label="Sort songs">${[['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['recent', 'Recently added'], ['rating', 'Rating']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>`;
     if (tab === 'albums') return setView('<h1>Library</h1>', chips, `<div class="grid">${[...S.albums.values()].sort((a, b) => a.name.localeCompare(b.name)).map(albumCard).join('')}</div>`);
     if (tab === 'artists') return setView('<h1>Library</h1>', chips, `<div class="grid">${[...S.artists.values()].sort((a, b) => a.name.localeCompare(b.name)).map(artistCard).join('')}</div>`);
     if (tab === 'folders') {
@@ -2452,6 +2509,7 @@ const VIEWS = {
       `<div class="settings-block"><h2>Appearance</h2>
         <div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-card ${S.theme.mode === k ? 'on' : ''}" data-act="theme-mode" data-mode="${k}" aria-label="${t.name} theme"><span class="theme-prev" style="background:${t.bg}"><i style="background:${t.panel}"></i><i style="background:${t.raised}"></i><b style="background:${t.accent}"></b></span><span>${t.name}</span></button>`).join('')}</div>
         <h2 style="margin-top:20px">Accent colour</h2>
+        <h2 style="margin-top:20px">Text size</h2><div class="chips">${[['', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([k, l]) => `<button class="chip ${(S.theme.text || '') === k ? 'active' : ''}" data-act="text-size" data-v="${k}">${l}</button>`).join('')}</div>
         <h2 style="margin-top:20px">Now Playing animation</h2><div class="chips">${VIZ.map(([k, l]) => `<button class="chip ${S.fx.viz === k ? 'active' : ''}" data-act="set-viz" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
@@ -2459,7 +2517,7 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
-        <a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
+        <button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
         ${LINKS.donate ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
@@ -2696,6 +2754,13 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
+  'share-app': shareApp,
+  'share-app-link': async () => {
+    try { if (navigator.share && !isDesktop()) return await navigator.share({ title: 'Seylumi', text: 'Seylumi plays your own music offline, with free radio and podcasts. No account, no adverts:', url: APP_LINK }); } catch (e) { if (e?.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(APP_LINK); toast('Link copied'); } catch { toast(APP_LINK); }
+  },
+  'text-size': el => { S.theme.text = el.dataset.v; applyTheme(); rerender(); },
+  'np-rate': () => { const t = current(); if (t && !t.url) rateMenu(t); },
   'set-viz': el => setViz(el.dataset.v),
   'share-view': el => sharePlaylist(el.dataset.name || 'Playlist', viewIds),
   'save-shared': async () => {
@@ -2880,6 +2945,7 @@ async function boot() {
   S.podGenre = await idb.get('kv', 'podGenre') || '';
   S.hist = await idb.get('kv', 'hist') || [];
   { const fx = await idb.get('kv', 'fx'); if (fx) S.fx = { ...S.fx, ...fx, bands: Array.isArray(fx.bands) && fx.bands.length === 5 ? fx.bands : S.fx.bands }; }
+  smartShuffleOn = S.fx.smartShuffle !== false;
   for (const x of state?.remote || []) reg(x);
   for (const x of Object.values(S.dl)) reg(x);
   for (const x of S.stations) reg(x);

@@ -74,6 +74,9 @@
   .steps li { margin-bottom: 10px; }
   .steps b { color: var(--text); }
   .note { color: var(--muted); font-size: 15px; margin-top: 14px; }
+  .qr-box { display: flex; gap: 18px; align-items: center; background: var(--raised); border-radius: 14px; padding: 14px; margin-bottom: 18px; }
+  .qr-box .qr { width: 120px; flex: none; background: #fff; border-radius: 10px; padding: 6px; } .qr-box .qr svg { display: block; width: 100%; height: auto; }
+  .qr-box p { margin: 0; color: #cfcbd6; }
   .faq details { background: var(--panel); border: 1px solid #ffffff0d; border-radius: 14px; padding: 4px 20px; margin-bottom: 10px; }
   .faq summary { cursor: pointer; font-weight: 700; padding: 14px 0; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
   .faq summary::-webkit-details-marker { display: none; }
@@ -193,6 +196,7 @@
           </ol>
           <p class="note">On iPhone, Seylumi can play music files stored in the Files app, but not songs inside the Apple Music app.</p>
         </div>
+        <div class="qr-box" id="qr-box" hidden><div class="qr" id="qr"></div><p>Reading this on a computer? Point your phone camera at the code to open Seylumi on your phone.</p></div>
         <div data-panel="windows" hidden>
           <ol class="steps">
             <li>Open <a href="https://sharkey171.github.io/cadence/"><b>Seylumi</b></a> in <b>Chrome</b> or <b>Edge</b>.</li>
@@ -249,7 +253,12 @@
   });
   tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
   const ua = navigator.userAgent;
+  if (!/Android|iPhone|iPad|iPod/.test(ua) && !(/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) import('./vendor/qr.js').then(m => {
+    const q = m.default(0, 'M'); q.addData('https://sharkey171.github.io/cadence/welcome.html'); q.make();
+    document.getElementById('qr').innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); document.getElementById('qr-box').hidden = false;
+  }).catch(() => {});
   show(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone' : /Android/.test(ua) ? 'android' : 'windows');
 </script>
+<script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>

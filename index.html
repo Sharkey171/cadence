@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=36">
+<link rel="stylesheet" href="styles.css?v=37">
 </head>
 <body>
 <div id="app">
@@ -105,7 +105,7 @@
   </header>
   <div id="np-art" class="art"></div>
   <div class="np-meta">
-    <div class="np-text"><div id="np-title"></div><div id="np-artist" class="artist-link" data-act="go-artist"></div></div>
+    <div class="np-text"><div id="np-title"></div><div id="np-artist" class="artist-link" data-act="go-artist"></div><button id="np-rating" class="np-rating" data-act="np-rate" hidden></button></div>
     <button class="icon-btn like cur-like" data-act="like-current" data-ic="heart" aria-label="Like"></button>
   </div>
   <div class="np-seek">
@@ -167,6 +167,15 @@
   </form>
 </dialog>
 
+<dialog id="share-app">
+  <form method="dialog">
+    <h3>Share Seylumi</h3>
+    <p>Point a phone camera at the code to open Seylumi, or send the link.</p>
+    <div class="qr"></div>
+    <div class="dlg-btns"><button class="btn">Close</button><button type="button" class="btn primary" data-act="share-app-link">Send the link</button></div>
+  </form>
+</dialog>
+
 <div id="backdrop" hidden></div>
 <div id="menu" hidden></div>
 <div id="toast"></div>
@@ -211,7 +220,8 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=36"></script>
+<script type="module" src="app.js?v=37"></script>
+<script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {
   var shown = false;

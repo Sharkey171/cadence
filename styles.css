@@ -444,3 +444,8 @@ body.is-playing .row.playing .row-art::after { animation: eqbars .9s ease-in-out
   100% { background-size: 4px 65%, 4px 50%, 4px 75%, auto; }
 }
 @media (prefers-reduced-motion: reduce) { body.is-playing .row.playing .row-art::after { animation: none; } }
+
+.np-rating { display: block; margin-top: 4px; padding: 0; color: var(--accent); font-size: 18px; letter-spacing: 2px; cursor: pointer; background: none; border: 0; }
+.np-rating.unrated { color: var(--muted); opacity: .6; }
+#share-app .qr { background: #fff; border-radius: 12px; padding: 10px; margin: 0 auto 16px; width: min(240px, 70vw); }
+#share-app .qr svg { display: block; width: 100%; height: auto; }

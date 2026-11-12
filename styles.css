@@ -399,3 +399,19 @@ body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-
 #update { position: fixed; left: 50%; transform: translateX(-50%); bottom: 96px; z-index: 26; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 30px #000a; font-weight: 600; white-space: nowrap; }
 #update .btn { padding: 7px 16px; }
 @media (max-width: 768px) { #update { bottom: 140px; } }
+
+/* ---------- folder view ---------- */
+.folders { display: grid; gap: 2px; margin-bottom: 18px; }
+.folder-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 20px; gap: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; }
+.folder-row:hover { background: var(--raised); }
+.folder-row .art { width: 44px; }
+.folder-row.is-hidden { opacity: .5; }
+.folder-ic { background: var(--raised); color: var(--accent); }
+.folder-ic svg { width: 22px; height: 22px; }
+.folder-ic.big svg { width: 64px; height: 64px; }
+.chev { color: var(--muted); font-size: 22px; text-align: center; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.crumbs a:hover { color: var(--text); text-decoration: underline; }
+.hidden-note { background: var(--raised); border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+.settings-block select { max-width: 100%; }
+@media (max-width: 768px) { .folder-row { padding: 6px 0; } }

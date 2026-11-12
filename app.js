@@ -101,6 +101,7 @@ const S = {
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
+  hide: { folders: [], minSecs: 0 }, shownList: [],
   radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
@@ -110,12 +111,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 26;
+const APP_VERSION = 27;
 const LINKS = {
   feedback: '',   // Google Form for "Send feedback" (button hidden until set)
   donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
 };
 const RELEASES = [
+  { v: 27, date: '2026-11-12', notes: ['Folder view: browse your music the way it is stored (Library → Folders)', 'Hide folders, and clips under 30 seconds, 1 or 2 minutes, from your library (Settings → Hide songs)'] },
   { v: 26, date: '2026-11-12', notes: ['Version number and this What’s new page', 'Updates now install with one tap on Restart, or by themselves when you open the app', 'Send feedback and Support the app buttons in Settings'] },
   { v: 25, date: '2026-11-12', notes: ['Top 50 podcast charts for 19 categories, for your country'] },
   { v: 24, date: '2026-11-11', notes: ['Linked folders: every song is added at once; names, lengths and covers are filled in afterwards in the background'] },
@@ -186,9 +188,18 @@ const view = $('#view');
 const current = () => T(S.queue[S.qIndex]);
 const playing = () => !!S.loadedId && !audio.paused;
 
+// Songs in hidden folders, or shorter than the chosen length, stay in the app but are left out of
+// the library, search, mixes and shuffle.
+const folderKey = t => t.folderId && t.path ? `${t.folderId}|${t.path}` : null;
+function isHidden(t) {
+  if (S.hide.minSecs && t.duration && t.duration < S.hide.minSecs) return true;
+  const k = folderKey(t); return !!k && S.hide.folders.some(h => k.startsWith(h));
+}
+const shown = () => S.shownList;
 function rebuild() {
   S.albums = new Map(); S.artists = new Map();
-  for (const t of S.tracks.values()) {
+  S.shownList = [...S.tracks.values()].filter(t => !isHidden(t));
+  for (const t of S.shownList) {
     let al = S.albums.get(t.albumKey);
     if (!al) S.albums.set(t.albumKey, al = { key: t.albumKey, name: t.album || 'Unknown album', artist: t.albumArtist || t.artist || 'Unknown artist', year: t.year, artId: t.artId, tracks: [], addedAt: 0 });
     al.tracks.push(t); al.addedAt = Math.max(al.addedAt, t.addedAt);
@@ -209,7 +220,7 @@ const SORTS = {
   album: (a, b) => (a.album || '').localeCompare(b.album || '') || (a.discNo || 1) - (b.discNo || 1) || (a.trackNo || 0) - (b.trackNo || 0),
   recent: (a, b) => b.addedAt - a.addedAt,
 };
-const allSongIds = () => [...S.tracks.values()].sort(SORTS[S.sort] || SORTS.title).map(t => t.id);
+const allSongIds = () => [...shown()].sort(SORTS[S.sort] || SORTS.title).map(t => t.id);
 
 /* ---------------- small UI helpers ---------------- */
 let toastTimer;
@@ -963,7 +974,7 @@ async function toggleLike(id) {
 }
 // Online items (episodes, stations, archive tracks) that are liked or in a playlist are kept here so they survive restarts.
 async function keep(item) { S.saved[item.id] = item; await idb.put('kv', S.saved, 'saved').catch(() => {}); }
-const likedItems = () => [...S.tracks.values(), ...S.remote.values()].filter(t => t.liked && t.kind !== 'station').sort((a, b) => b.liked - a.liked);
+const likedItems = () => [...shown(), ...S.remote.values()].filter(t => t.liked && t.kind !== 'station').sort((a, b) => b.liked - a.liked);
 const playlistIds = p => p.smart ? smartIds(p) : p.trackIds.filter(has);
 async function newPlaylist(withIds = []) {
   const name = await ask({ title: 'New playlist', input: `My playlist #${S.playlists.length + 1}`, ok: 'Create' });
@@ -1296,11 +1307,11 @@ async function importBackup(file) {
 
 /* ---------------- automatic playlists ---------------- */
 const MIXES = {
-  recent: { name: 'Recently added', icon: 'clock', bg: '#2a6f97,#1b3a4b', ids: () => [...S.tracks.values()].sort((a, b) => b.addedAt - a.addedAt || a.title.localeCompare(b.title)).slice(0, 100).map(t => t.id) },
-  top: { name: 'Most played', icon: 'note', bg: '#7b2cbf,#3c096c', ids: () => [...S.tracks.values()].filter(t => t.plays).sort((a, b) => b.plays - a.plays).slice(0, 100).map(t => t.id) },
-  never: { name: 'Never played', icon: 'spark', bg: '#b5651d,#5c2d0c', ids: () => [...S.tracks.values()].filter(t => !t.plays).sort(SORTS.artist).slice(0, 200).map(t => t.id) },
-  forgotten: { name: 'Forgotten favourites', icon: 'heart', bg: '#9d174d,#4a0d28', ids: () => [...S.tracks.values()].filter(t => t.liked && Date.now() - (t.lastPlayed || 0) > 90 * 864e5).sort((a, b) => (a.lastPlayed || 0) - (b.lastPlayed || 0)).slice(0, 200).map(t => t.id) },
-  history: { name: 'Recently played', icon: 'repeat', bg: '#2d6a4f,#1b4332', ids: () => [...S.tracks.values()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 100).map(t => t.id) },
+  recent: { name: 'Recently added', icon: 'clock', bg: '#2a6f97,#1b3a4b', ids: () => [...shown()].sort((a, b) => b.addedAt - a.addedAt || a.title.localeCompare(b.title)).slice(0, 100).map(t => t.id) },
+  top: { name: 'Most played', icon: 'note', bg: '#7b2cbf,#3c096c', ids: () => [...shown()].filter(t => t.plays).sort((a, b) => b.plays - a.plays).slice(0, 100).map(t => t.id) },
+  never: { name: 'Never played', icon: 'spark', bg: '#b5651d,#5c2d0c', ids: () => [...shown()].filter(t => !t.plays).sort(SORTS.artist).slice(0, 200).map(t => t.id) },
+  forgotten: { name: 'Forgotten favourites', icon: 'heart', bg: '#9d174d,#4a0d28', ids: () => [...shown()].filter(t => t.liked && Date.now() - (t.lastPlayed || 0) > 90 * 864e5).sort((a, b) => (a.lastPlayed || 0) - (b.lastPlayed || 0)).slice(0, 200).map(t => t.id) },
+  history: { name: 'Recently played', icon: 'repeat', bg: '#2d6a4f,#1b4332', ids: () => [...shown()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 100).map(t => t.id) },
 };
 
 /* ---------------- online: free podcasts + live radio ---------------- */
@@ -1530,7 +1541,9 @@ async function addStation() {
   S.stations.push(reg({ id, kind: 'station', live: true, title: name, artist: 'Added by you', album: 'Live radio', url, art: '', artId: 'r:st:custom:' + h, liked: Date.now() }));
   await idb.put('kv', S.stations, 'stations'); toast('Station added to your favourites'); rerender();
 }
-view.addEventListener('change', e => { if (e.target.id === 'rad-cc') { S.radCC = e.target.value; saveRadioPrefs(); rerender(); } });
+view.addEventListener('change', async e => {
+  if (e.target.dataset.set === 'minSecs') { S.hide.minSecs = +e.target.value; await idb.put('kv', S.hide, 'hide'); rebuild(); rerender(); toast(S.hide.minSecs ? 'Short clips hidden' : 'All lengths shown'); return; }
+  if (e.target.id === 'rad-cc') { S.radCC = e.target.value; saveRadioPrefs(); rerender(); } });
 async function radioView() {
   const here = location.hash, favs = S.stations.map(x => x.id);
   setView('<h1>Online</h1>', onlineChips('radio'), searchForm('rad', S.radQ, 'Search radio stations by name'),
@@ -1893,7 +1906,7 @@ function smartIds(p) {
     decade: t => !!t.year && Math.floor(t.year / 10) === Math.floor(n / 10),
   }[r.type] || (() => true);
   const order = { top: (a, b) => b.plays - a.plays, recent: (a, b) => b.addedAt - a.addedAt, stale: (a, b) => a.lastPlayed - b.lastPlayed }[r.type] || SORTS.artist;
-  return [...S.tracks.values()].filter(t => test(t) && (!r.liked || t.liked)).sort(order).slice(0, 500).map(t => t.id);
+  return [...shown()].filter(t => test(t) && (!r.liked || t.liked)).sort(order).slice(0, 500).map(t => t.id);
 }
 async function newSmart() {
   const d = $('#smart'), f = $('form', d).elements;
@@ -1928,8 +1941,29 @@ async function removeDuplicates() {
   await deleteTracks(extra.map(t => t.id));
   toast(`Removed ${extra.length} duplicate${extra.length === 1 ? '' : 's'}`);
 }
+// Folder view: browse linked folders as they are stored; songs added with "Add files" sit under "Added files".
+const folderHref = (fid, prefix) => `#/folder/${encodeURIComponent(fid)}/${encodeURIComponent(prefix)}`;
+function folderContents(fid, prefix) {
+  const subs = new Map(), songs = [];
+  for (const t of S.tracks.values()) {
+    if (fid === 'added' ? t.folderId : t.folderId !== fid) continue;
+    if (fid !== 'added' && !(t.path || '').startsWith(prefix)) continue;
+    const rest = fid === 'added' ? t.fileName : t.path.slice(prefix.length), cut = rest.indexOf('/');
+    if (cut < 0) songs.push(t);
+    else { const n = rest.slice(0, cut), e = subs.get(n) || subs.set(n, { n: 0, art: null }).get(n); e.n++; if (!e.art && S.artUrls.has(t.artId)) e.art = t.artId; }
+  }
+  return { subs: [...subs.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })), songs };
+}
+const folderHiddenBy = (fid, prefix) => S.hide.folders.find(h => `${fid}|${prefix}`.startsWith(h));
+const folderRow = (href, name, n, art, hidden) => `<a class="folder-row ${hidden ? 'is-hidden' : ''}" href="${href}">${art ? artDiv(art, name) : `<div class="art folder-ic">${ic('folder')}</div>`}<div class="row-main"><div class="row-title">${esc(name)}</div><div class="row-sub">${n} song${n === 1 ? '' : 's'}${hidden ? ' · Hidden' : ''}</div></div><span class="chev">›</span></a>`;
+async function setFolderHidden(key, hide) {
+  S.hide.folders = S.hide.folders.filter(h => h !== key && !(hide && h.startsWith(key)));
+  if (hide) S.hide.folders.push(key);
+  await idb.put('kv', S.hide, 'hide'); rebuild(); rerender(); syncPlayer();
+  toast(hide ? 'Folder hidden from your library' : 'Folder shown again');
+}
 const tagCard = (href, title, n, icon) => `<a class="card" href="${href}">${artDiv(null, title, '', icon)}<div class="card-title">${esc(title)}</div><div class="card-sub">${n} song${n === 1 ? '' : 's'}</div></a>`;
-const groupBy = fn => { const m = new Map(); for (const t of S.tracks.values()) { const k = fn(t); if (k != null && k !== '') (m.get(k) || m.set(k, []).get(k)).push(t); } return m; };
+const groupBy = fn => { const m = new Map(); for (const t of shown()) { const k = fn(t); if (k != null && k !== '') (m.get(k) || m.set(k, []).get(k)).push(t); } return m; };
 const decadeOf = t => t.year ? Math.floor(t.year / 10) * 10 : null;
 
 /* ---------------- sound settings ---------------- */
@@ -2021,7 +2055,7 @@ const page = () => location.hash.split('/')[1] || 'home';
 const VIEWS = {
   home() {
     if (!S.tracks.size) return setView(emptyLib());
-    const ts = [...S.tracks.values()];
+    const ts = [...shown()];
     const recent = ts.filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 8);
     const newest = [...S.albums.values()].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12);
     const top = ts.filter(t => t.plays).sort((a, b) => b.plays - a.plays).slice(0, 10);
@@ -2037,10 +2071,16 @@ const VIEWS = {
   },
   library(tab = 'songs') {
     if (!S.tracks.size) return setView(emptyLib());
-    const chips = `<div class="chips">${['songs', 'albums', 'artists', 'genres', 'decades'].map(c => `<a class="chip ${c === tab ? 'active' : ''}" href="#/library/${c}">${c[0].toUpperCase() + c.slice(1)}</a>`).join('')}
+    const chips = `<div class="chips">${['songs', 'albums', 'artists', 'folders', 'genres', 'decades'].map(c => `<a class="chip ${c === tab ? 'active' : ''}" href="#/library/${c}">${c[0].toUpperCase() + c.slice(1)}</a>`).join('')}
       ${tab === 'songs' ? `<select id="sort" aria-label="Sort songs">${[['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['recent', 'Recently added']].map(([v, l]) => `<option value="${v}" ${S.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}</div>`;
     if (tab === 'albums') return setView('<h1>Library</h1>', chips, `<div class="grid">${[...S.albums.values()].sort((a, b) => a.name.localeCompare(b.name)).map(albumCard).join('')}</div>`);
     if (tab === 'artists') return setView('<h1>Library</h1>', chips, `<div class="grid">${[...S.artists.values()].sort((a, b) => a.name.localeCompare(b.name)).map(artistCard).join('')}</div>`);
+    if (tab === 'folders') {
+      const roots = S.folders.map(f => ({ href: folderHref(f.id, ''), name: f.name, n: [...S.tracks.values()].filter(t => t.folderId === f.id).length, hidden: !!folderHiddenBy(f.id, '') }));
+      const added = [...S.tracks.values()].filter(t => !t.folderId).length;
+      if (added) roots.push({ href: folderHref('added', ''), name: 'Added files', n: added });
+      return setView('<h1>Library</h1>', chips, roots.length ? `<div class="folders">${roots.map(r => folderRow(r.href, r.name, r.n, null, r.hidden)).join('')}</div>` : '<div class="empty">No folders yet.</div>');
+    }
     if (tab === 'genres') { const g = [...groupBy(t => t.genre).entries()].sort((a, b) => a[0].localeCompare(b[0])); return setView('<h1>Library</h1>', chips, g.length ? `<div class="grid">${g.map(([k, ts]) => tagCard(`#/genre/${encodeURIComponent(k)}`, k, ts.length, 'tag')).join('')}</div>` : '<div class="empty">None of your songs has a genre saved. You can add one with ⋯ → Edit info.</div>'); }
     if (tab === 'decades') { const g = [...groupBy(decadeOf).entries()].sort((a, b) => b[0] - a[0]); return setView('<h1>Library</h1>', chips, g.length ? `<div class="grid">${g.map(([k, ts]) => tagCard(`#/decade/${k}`, `${k}s`, ts.length, 'clock')).join('')}</div>` : '<div class="empty">None of your songs has a year saved. You can add one with ⋯ → Edit info.</div>'); }
     viewIds = allSongIds();
@@ -2110,11 +2150,11 @@ const VIEWS = {
       ts.length ? trackList(viewIds, p.smart ? {} : { playlistId: p.id }) : `<div class="empty">${p.smart ? 'No songs match this rule yet.' : 'This playlist is empty. Use the ⋯ menu on any song to add it.'}</div>`);
   },
   genre(name) {
-    const ts = [...S.tracks.values()].filter(t => t.genre === name).sort(SORTS.artist); viewIds = ts.map(t => t.id);
+    const ts = [...shown()].filter(t => t.genre === name).sort(SORTS.artist); viewIds = ts.map(t => t.id);
     setView(`<div class="hero">${artDiv(null, name, '', 'tag')}<div class="hero-text"><div class="kind">Genre</div><h1>${esc(name)}</h1><div class="muted">${total(ts)}</div>${ts.length ? heroActions() : ''}</div></div>`, trackList(viewIds));
   },
   decade(d) {
-    const ts = [...S.tracks.values()].filter(t => decadeOf(t) === +d).sort((a, b) => a.year - b.year || SORTS.artist(a, b)); viewIds = ts.map(t => t.id);
+    const ts = [...shown()].filter(t => decadeOf(t) === +d).sort((a, b) => a.year - b.year || SORTS.artist(a, b)); viewIds = ts.map(t => t.id);
     setView(`<div class="hero">${artDiv(null, d + 's', '', 'clock')}<div class="hero-text"><div class="kind">Decade</div><h1>${esc(d)}s</h1><div class="muted">${total(ts)}</div>${ts.length ? heroActions() : ''}</div></div>`, trackList(viewIds));
   },
   duplicates() {
@@ -2124,6 +2164,23 @@ const VIEWS = {
     setView(`<h1>Duplicates</h1><div class="muted">${groups.length} song${groups.length === 1 ? '' : 's'} with extra copies. The first one in each group is the one that's kept.</div>
       <div class="hero-actions" style="margin-bottom:8px"><button class="btn danger" data-act="dedupe">${ic('trash')}Remove ${n} extra cop${n === 1 ? 'y' : 'ies'}</button></div>`,
       ...groups.flatMap(g => [`<h2>${esc(g[0].title)} <span class="muted" style="font-weight:400">· ${esc(g[0].artist || 'Unknown artist')}</span></h2>`, trackList(g.map(t => t.id))]));
+  },
+  folder(fid, prefix = '') {
+    const root = fid === 'added' ? { name: 'Added files' } : S.folders.find(f => f.id === fid);
+    if (!root) return setView('<div class="empty">Folder not found.</div>');
+    const { subs, songs } = folderContents(fid, prefix);
+    const parts = prefix.split('/').filter(Boolean), name = parts.at(-1) || root.name;
+    const crumbs = [`<a href="#/library/folders">Folders</a>`, `<a href="${folderHref(fid, '')}">${esc(root.name)}</a>`, ...parts.map((p, i) => `<a href="${folderHref(fid, parts.slice(0, i + 1).join('/') + '/')}">${esc(p)}</a>`)];
+    const hiddenBy = fid !== 'added' && folderHiddenBy(fid, prefix);
+    const all = [...S.tracks.values()].filter(t => fid === 'added' ? !t.folderId : t.folderId === fid && (t.path || '').startsWith(prefix));
+    viewIds = all.filter(t => hiddenBy || !isHidden(t)).sort((a, b) => (a.path || a.fileName).localeCompare(b.path || b.fileName, undefined, { numeric: true })).map(t => t.id);
+    S.curFolder = { fid, prefix, name };
+    setView(`<div class="crumbs">${crumbs.join('<span>›</span>')}</div><div class="hero folder-hero"><div class="art folder-ic big">${ic('folder')}</div><div class="hero-text"><div class="kind">Folder</div><h1>${esc(name)}</h1>
+      <div class="muted">${all.length} song${all.length === 1 ? '' : 's'}${subs.length ? ` in ${subs.length} folder${subs.length === 1 ? '' : 's'}` : ''}</div>
+      ${all.length ? heroActions(fid === 'added' ? '' : `<button class="btn" data-act="folder-hide" aria-label="${hiddenBy ? 'Show this folder in your library again' : 'Leave this folder out of your library, search and shuffle'}">${hiddenBy ? 'Show folder' : 'Hide folder'}</button>`) : ''}</div></div>`,
+      hiddenBy ? `<div class="hidden-note">This folder is hidden from your library, search and shuffle${hiddenBy !== `${fid}|${prefix}` ? ' (a folder above it is hidden)' : ''}. Its songs are still here and play from this page.</div>` : '',
+      subs.length ? `<div class="folders">${subs.map(([n, e]) => folderRow(folderHref(fid, prefix + n + '/'), n, e.n, e.art, !!folderHiddenBy(fid, prefix + n + '/'))).join('')}</div>` : '',
+      songs.length ? `<h2>${subs.length ? 'Songs in this folder' : 'Songs'}</h2>` : '', songs.length ? trackList(songs.sort((a, b) => (a.path || a.fileName).localeCompare(b.path || b.fileName, undefined, { numeric: true })).map(t => t.id), { showHidden: true }) : null);
   },
   mix(kind) {
     const m = MIXES[kind]; if (!m) return setView('<div class="empty">Not found.</div>');
@@ -2152,7 +2209,7 @@ const VIEWS = {
     if (!q) return setView('<h1>Search</h1><div class="empty">Find songs, albums and artists in your library.</div>');
     const words = q.split(/\s+/);
     const hit = s => words.every(w => s.includes(w));
-    const songs = [...S.tracks.values()].filter(t => hit(norm(`${t.title} ${t.artist} ${t.album}`)))
+    const songs = [...shown()].filter(t => hit(norm(`${t.title} ${t.artist} ${t.album}`)))
       .sort((a, b) => (norm(b.title).startsWith(q) - norm(a.title).startsWith(q)) || a.title.localeCompare(b.title)).slice(0, 100);
     const albums = [...S.albums.values()].filter(a => hit(norm(`${a.name} ${a.artist}`))).slice(0, 12);
     const artists = [...S.artists.values()].filter(a => hit(a.key)).slice(0, 12);
@@ -2180,6 +2237,10 @@ const VIEWS = {
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
         <div class="hero-actions"><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
+      `<div class="settings-block"><h2>Hide songs</h2><p>Leave things like voice notes, ringtones and recordings out of your library, search and shuffle. Nothing is deleted, and you can show them again at any time.</p>
+        <div class="hero-actions"><select data-set="minSecs" aria-label="Hide short clips">${[[0, 'Show all lengths'], [30, 'Hide clips under 30 seconds'], [60, 'Hide clips under 1 minute'], [120, 'Hide clips under 2 minutes']].map(([v, l]) => `<option value="${v}" ${S.hide.minSecs === v ? 'selected' : ''}>${l}</option>`).join('')}</select><a class="btn" href="#/library/folders">${ic('folder')}Hide a folder</a></div>
+        ${S.hide.folders.length ? `<h2 style="margin-top:18px">Hidden folders</h2>${S.hide.folders.map(h => { const [fid, pre] = [h.slice(0, h.indexOf('|')), h.slice(h.indexOf('|') + 1)]; const f = S.folders.find(x => x.id === fid); return `<div class="folder">${ic('folder')}<b>${esc((f?.name || 'Folder') + (pre ? ' / ' + pre.replace(/\/$/, '') : ''))}</b><button class="btn" data-act="unhide" data-key="${esc(h)}">Show</button></div>`; }).join('')}` : ''}
+        ${(() => { const n = S.tracks.size - S.shownList.length; return n ? `<p style="margin-top:10px">${n} song${n === 1 ? ' is' : 's are'} hidden.</p>` : ''; })()}</div>`,
       soundSettings(),
       `<div class="settings-block"><h2>Appearance</h2>
         <div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-card ${S.theme.mode === k ? 'on' : ''}" data-act="theme-mode" data-mode="${k}" aria-label="${t.name} theme"><span class="theme-prev" style="background:${t.bg}"><i style="background:${t.panel}"></i><i style="background:${t.raised}"></i><b style="background:${t.accent}"></b></span><span>${t.name}</span></button>`).join('')}</div>
@@ -2213,7 +2274,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { album: 'library', artist: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -2330,6 +2391,8 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
+  'folder-hide': () => { const c = S.curFolder; if (!c) return; const key = `${c.fid}|${c.prefix}`, by = folderHiddenBy(c.fid, c.prefix); setFolderHidden(by || key, !by); },
+  'unhide': el => setFolderHidden(el.dataset.key, false),
   'check-update': async () => {
     toast('Checking for updates…');
     try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); setTimeout(() => { if (!updateReady) toast(`You have the latest version (${APP_VERSION})`); }, 4000); }
@@ -2494,6 +2557,7 @@ async function boot() {
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
   S.ia = await idb.get('kv', 'iaSaved') || [];
+  { const hd = await idb.get('kv', 'hide'); if (hd) S.hide = { folders: Array.isArray(hd.folders) ? hd.folders : [], minSecs: +hd.minSecs || 0 }; }
   S.podGenre = await idb.get('kv', 'podGenre') || '';
   S.hist = await idb.get('kv', 'hist') || [];
   { const fx = await idb.get('kv', 'fx'); if (fx) S.fx = { ...S.fx, ...fx, bands: Array.isArray(fx.bands) && fx.bands.length === 5 ? fx.bands : S.fx.bands }; }

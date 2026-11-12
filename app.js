@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 34, date: '2026-11-12', notes: ['A welcome page that explains Seylumi and how to install it, and picture previews when you share a link'] },
   { v: 33, date: '2026-11-12', notes: ['Fixed: the Privacy button opened a blank app instead of the privacy policy'] },
   { v: 32, date: '2026-11-12', notes: ['Cadence is now called Seylumi. Your music, playlists and settings are all still here.'] },
   { v: 31, date: '2026-11-12', notes: ['Send feedback and Support the app are now switched on in Settings'] },
@@ -2224,7 +2225,8 @@ const emptyLib = () => `<div class="empty"><h1>Your music, offline</h1>
   <p>Add the music files stored on this device. They stay on the device and play with no internet connection.</p>
   <div class="hero-actions"><button class="btn primary" data-act="add-files">${ic('file')}Add files</button>
   ${isDesktop() ? `<button class="btn" data-act="add-folder">${ic('folder')}Add a folder</button>` : ''}</div>
-  <p style="margin-top:18px;font-size:13px">Works with MP3, M4A/AAC, FLAC, WAV, OGG and Opus.</p></div>`;
+  <p style="margin-top:18px;font-size:13px">Works with MP3, M4A/AAC, FLAC, WAV, OGG and Opus.</p>
+  <p style="font-size:13px"><a href="welcome.html" style="color:var(--accent)">New to Seylumi? See what it can do</a></p></div>`;
 const heroActions = (extra = '') => `<div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play</button><button class="btn" data-act="shuffle-view">${ic('shuffle')}Shuffle</button>${extra}</div>`;
 
 let viewIds = [];   // tracks of the current page, for the Play / Shuffle buttons

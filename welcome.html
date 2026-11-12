@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seylumi — your music, offline</title>
+<meta name="description" content="Seylumi is a free music player for the songs you already own. Plays offline, with free radio, podcasts and free music built in. No account, no adverts, no tracking.">
+<meta name="theme-color" content="#0e0e12">
+<link rel="icon" href="https://sharkey171.github.io/cadence/icons/icon-192.png">
+<link rel="apple-touch-icon" href="https://sharkey171.github.io/cadence/icons/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Seylumi">
+<meta property="og:title" content="Seylumi — your music, offline">
+<meta property="og:description" content="A free music player for the songs you already own. Free radio and podcasts built in. No account, no adverts.">
+<meta property="og:image" content="https://sharkey171.github.io/cadence/landing/share.jpg">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="500">
+<meta property="og:url" content="https://sharkey171.github.io/cadence/welcome.html">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root { --bg: #0e0e12; --panel: #15151b; --raised: #1d1d25; --line: #2a2a35; --text: #f3f1ee; --muted: #a09ea8; --accent: #ff7a59; --accent-2: #c2256f; --ink: #1a0d08; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 26px; border-radius: 999px; font-weight: 700; text-decoration: none; font-size: 17px; }
+  .btn.primary { background: var(--accent); color: var(--ink); box-shadow: 0 10px 30px #ff7a5940; }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.ghost { background: var(--raised); }
+  .btn.ghost:hover { background: #262630; }
+  header.top { position: sticky; top: 0; z-index: 5; background: #0e0e12e6; backdrop-filter: blur(10px); border-bottom: 1px solid #ffffff10; }
+  header.top .wrap { display: flex; align-items: center; gap: 12px; height: 64px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; text-decoration: none; letter-spacing: -0.01em; }
+  .logo img { width: 34px; height: 34px; border-radius: 9px; }
+  header.top nav { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  header.top nav a.link { color: var(--muted); text-decoration: none; padding: 8px 10px; font-size: 15px; }
+  header.top nav a.link:hover { color: var(--text); }
+  header.top .btn { padding: 9px 18px; font-size: 15px; }
+  .hero { position: relative; overflow: hidden; padding: 64px 0 40px; }
+  .hero::before { content: ""; position: absolute; inset: -40% -20% auto auto; width: 720px; height: 720px; background: radial-gradient(circle, #c2256f55, transparent 65%); pointer-events: none; }
+  .hero .wrap { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items: center; position: relative; }
+  .eyebrow { display: inline-block; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); background: #ff7a5916; padding: 6px 12px; border-radius: 999px; margin-bottom: 18px; }
+  h1 { font-size: clamp(38px, 6vw, 64px); line-height: 1.04; letter-spacing: -0.03em; margin: 0 0 18px; text-wrap: balance; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, var(--accent), #ff6fae); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { font-size: 19px; color: #cfcbd6; margin: 0 0 28px; max-width: 34em; }
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 26px; color: var(--muted); font-size: 15px; padding: 0; list-style: none; }
+  .facts li::before { content: "✓"; color: var(--accent); font-weight: 800; margin-right: 7px; }
+  .phones { position: relative; height: 520px; }
+  .phone { position: absolute; width: 230px; border-radius: 30px; border: 6px solid #22222b; box-shadow: 0 30px 80px #000c; background: #000; overflow: hidden; }
+  .phone img { display: block; width: 100%; height: auto; }
+  .phone.a { left: 8%; top: 30px; transform: rotate(-6deg); }
+  .phone.b { right: 6%; top: 0; transform: rotate(5deg); }
+  section { padding: 56px 0; }
+  h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.02em; margin: 0 0 10px; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 40em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid #ffffff0d; border-radius: 18px; padding: 22px; }
+  .card .ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #ff7a591a; color: var(--accent); margin-bottom: 14px; }
+  .card .ic svg { width: 24px; height: 24px; }
+  .card h3 { margin: 0 0 6px; font-size: 19px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .shots { display: flex; gap: 18px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 6px 2px 18px; scrollbar-width: thin; }
+  .shots figure { margin: 0; flex: none; width: 230px; scroll-snap-align: start; }
+  .shots img { width: 100%; border-radius: 22px; border: 5px solid #22222b; display: block; }
+  .shots figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; text-align: center; }
+  .install { background: var(--panel); border-radius: 22px; padding: 26px; border: 1px solid #ffffff0d; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tabs button { font: inherit; font-weight: 700; font-size: 15px; color: var(--muted); background: var(--raised); border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; }
+  .tabs button[aria-selected=true] { background: var(--text); color: var(--bg); }
+  .steps { margin: 0; padding-left: 22px; }
+  .steps li { margin-bottom: 10px; }
+  .steps b { color: var(--text); }
+  .note { color: var(--muted); font-size: 15px; margin-top: 14px; }
+  .faq details { background: var(--panel); border: 1px solid #ffffff0d; border-radius: 14px; padding: 4px 20px; margin-bottom: 10px; }
+  .faq summary { cursor: pointer; font-weight: 700; padding: 14px 0; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; color: var(--accent); font-size: 22px; line-height: 1; }
+  .faq details[open] summary::after { content: "–"; }
+  .faq details p { margin: 0 0 16px; color: #cfcbd6; }
+  .band { text-align: center; background: linear-gradient(120deg, #2a1424, #160f22); border-radius: 26px; padding: 44px 24px; border: 1px solid #ffffff10; }
+  .band p { color: #cfcbd6; max-width: 36em; margin: 0 auto 24px; }
+  footer { border-top: 1px solid #ffffff10; padding: 30px 0 46px; color: var(--muted); font-size: 15px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--text); }
+  footer .spacer { flex: 1; }
+  @media (max-width: 860px) {
+    .hero { padding: 36px 0 10px; }
+    .hero .wrap { grid-template-columns: 1fr; gap: 10px; }
+    .phones { height: 430px; margin: 0 auto; width: 100%; max-width: 380px; }
+    .phone { width: 190px; }
+    .phone.a { left: 0; } .phone.b { right: 0; }
+    .grid { grid-template-columns: 1fr; }
+    header.top nav a.link { display: none; }
+    section { padding: 40px 0; }
+  }
+  @media (min-width: 861px) and (max-width: 1000px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#"><img src="https://sharkey171.github.io/cadence/icons/icon-192.png" alt="">Seylumi</a>
+    <nav>
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#install">Install</a>
+      <a class="link" href="#faq">Questions</a>
+      <a class="btn primary" href="https://sharkey171.github.io/cadence/">Open Seylumi</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">Free · No account · No adverts</span>
+        <h1>Your music, <em>offline</em>. Radio and podcasts built in.</h1>
+        <p class="lead">Seylumi plays the songs you already own, anywhere, with no internet and no subscription. When you are online, thousands of free radio stations, podcasts and live recordings are a tap away.</p>
+        <div class="ctas">
+          <a class="btn primary" href="https://sharkey171.github.io/cadence/">Open Seylumi</a>
+          <a class="btn ghost" href="#install">How to install</a>
+        </div>
+        <ul class="facts">
+          <li>Android, iPhone and Windows</li>
+          <li>Nothing to sign up for</li>
+          <li>Your music stays on your device</li>
+        </ul>
+      </div>
+      <div class="phones" aria-hidden="true">
+        <div class="phone a"><img src="landing/1-home.webp" alt="" width="540" height="960"></div>
+        <div class="phone b"><img src="landing/2-now-playing.webp" alt="" width="540" height="960"></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Everything a music app should be</h2>
+      <p class="sub">Built for the music you have collected over the years, without anyone else deciding what you can play.</p>
+      <div class="grid">
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></div><h3>Your library, offline</h3><p>MP3, FLAC, M4A, OGG and more. Albums, artists, genres, decades and your own folders, built from the files you have.</p></div>
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 8l9-5M15 12h3M15 16h3"/><circle cx="8.5" cy="14" r="2.5"/></svg></div><h3>Song radio</h3><p>Start from any song and Seylumi keeps playing similar music from your own collection, for as long as you like.</p></div>
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div><h3>Free podcasts and radio</h3><p>Top 50 podcast charts in every category, live radio from every country, and free music from the Internet Archive.</p></div>
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h8M20 6h-2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2.2"/><circle cx="9" cy="12" r="2.2"/><circle cx="17" cy="18" r="2.2"/></svg></div><h3>Sound your way</h3><p>Five-band equalizer with presets, crossfade, gapless playback, even volume across songs, and a sleep timer.</p></div>
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/></svg></div><h3>Share playlists</h3><p>Send a playlist as a link. Your friend's Seylumi plays the songs they have and finds the rest on YouTube Music.</p></div>
+        <div class="card"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></div><h3>Nine languages</h3><p>English, Irish, Spanish, French, German, Polish, Portuguese, Italian and Dutch, plus eight themes to make it yours.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>See it in action</h2>
+      <p class="sub">Lyrics that follow the song, covers found for you, car mode, listening stats and more.</p>
+      <div class="shots">
+        <figure><img src="landing/1-home.webp" alt="Seylumi home screen" width="540" height="960" loading="lazy"><figcaption>Home</figcaption></figure>
+        <figure><img src="landing/2-now-playing.webp" alt="Now playing screen" width="540" height="960" loading="lazy"><figcaption>Now playing</figcaption></figure>
+        <figure><img src="landing/4-radio.webp" alt="Radio stations by country and genre" width="540" height="960" loading="lazy"><figcaption>Radio</figcaption></figure>
+        <figure><img src="landing/6-equalizer.webp" alt="Equalizer settings" width="540" height="960" loading="lazy"><figcaption>Equalizer</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install in under a minute</h2>
+      <p class="sub">Seylumi installs straight from your browser. It gets its own icon, opens in its own window and works without internet.</p>
+      <div class="install">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="android">Android</button>
+          <button role="tab" aria-selected="false" data-tab="iphone">iPhone and iPad</button>
+          <button role="tab" aria-selected="false" data-tab="windows">Windows and Mac</button>
+        </div>
+        <div data-panel="android">
+          <ol class="steps">
+            <li>Open <a href="https://sharkey171.github.io/cadence/"><b>Seylumi</b></a> in <b>Chrome</b>.</li>
+            <li>Tap the <b>⋮</b> menu at the top right, then <b>Add to Home screen</b> (or <b>Install app</b>).</li>
+            <li>Tap <b>Install</b>. Seylumi appears with your other apps.</li>
+            <li>Open it and tap <b>+</b> to add your music, or <b>Link a folder</b> to use your Music folder as it is.</li>
+          </ol>
+        </div>
+        <div data-panel="iphone" hidden>
+          <ol class="steps">
+            <li>Open <a href="https://sharkey171.github.io/cadence/"><b>Seylumi</b></a> in <b>Safari</b>.</li>
+            <li>Tap the <b>Share</b> button, then <b>Add to Home Screen</b>.</li>
+            <li>Tap <b>Add</b>.</li>
+            <li>Open it and tap <b>+</b> to add music files from the <b>Files</b> app.</li>
+          </ol>
+          <p class="note">On iPhone, Seylumi can play music files stored in the Files app, but not songs inside the Apple Music app.</p>
+        </div>
+        <div data-panel="windows" hidden>
+          <ol class="steps">
+            <li>Open <a href="https://sharkey171.github.io/cadence/"><b>Seylumi</b></a> in <b>Chrome</b> or <b>Edge</b>.</li>
+            <li>Click the <b>install</b> icon at the right of the address bar (a screen with a small arrow), then <b>Install</b>.</li>
+            <li>Choose <b>Link a folder</b> and pick your Music folder. Your songs play from where they are, using no extra space.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <p class="sub">The things people usually ask first.</p>
+      <details><summary>Is it really free?</summary><p>Yes. There is no subscription, no account and no adverts. If you enjoy it, you can support it with a small donation, but everything works without paying.</p></details>
+      <details><summary>Does it need the internet?</summary><p>No. Your own music plays completely offline. The internet is only used for the extras you choose: radio, podcasts, free music, covers and lyrics.</p></details>
+      <details><summary>Where is my music stored?</summary><p>On your own phone or computer. Nothing is uploaded anywhere, and there is no account that knows what you listen to. See the <a href="https://sharkey171.github.io/cadence/privacy.html">privacy policy</a>.</p></details>
+      <details><summary>Can it play my Spotify or Apple Music songs?</summary><p>No. Those services lock their songs to their own apps. Seylumi plays music files you have, such as songs you have bought, ripped from CDs or downloaded legally. It can also play YouTube and YouTube Music links in YouTube's own player.</p></details>
+      <details><summary>Which files does it play?</summary><p>MP3, M4A/AAC, FLAC, WAV, OGG and Opus. It reads the song details and covers inside the files, and can find missing covers and lyrics online.</p></details>
+      <details><summary>Is it in the Play Store?</summary><p>Not yet. For now you install it straight from your browser, which takes under a minute and updates itself automatically.</p></details>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="band">
+        <h2>Give your music a home</h2>
+        <p>No account to create. Open Seylumi, add your songs and press play.</p>
+        <a class="btn primary" href="https://sharkey171.github.io/cadence/">Open Seylumi</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#"><img src="https://sharkey171.github.io/cadence/icons/icon-192.png" alt="">Seylumi</a>
+    <span class="spacer"></span>
+    <a href="https://sharkey171.github.io/cadence/privacy.html">Privacy</a>
+    <a href="https://forms.gle/UmuvHsttwDFQGoYAA" target="_blank" rel="noopener">Send feedback</a>
+    <a href="https://www.paypal.me/sharkeypaul9" target="_blank" rel="noopener">Support Seylumi</a>
+    <a href="https://github.com/Sharkey171/cadence" target="_blank" rel="noopener">Source code</a>
+  </div>
+</footer>
+
+<script>
+  // Install tabs: start on the visitor's own kind of device.
+  const tabs = document.querySelectorAll('[data-tab]');
+  const show = name => tabs.forEach(t => {
+    const on = t.dataset.tab === name;
+    t.setAttribute('aria-selected', on);
+    document.querySelector(`[data-panel="${t.dataset.tab}"]`).hidden = !on;
+  });
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
+  const ua = navigator.userAgent;
+  show(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone' : /Android/.test(ua) ? 'android' : 'windows');
+</script>
+</body>
+</html>

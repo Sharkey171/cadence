@@ -1,12 +1,13 @@
 // Offline app shell. Music itself lives in IndexedDB / linked folders, not here.
 // Bump VERSION (and the ?v= numbers in index.html) with every release: each version gets its
 // own complete, freshly downloaded set of files, so the page and its script can never mismatch.
-const VERSION = 29;
+const VERSION = 30;
 const CACHE = `cadence-shell-v${VERSION}`;
 const SHELL = [
   './', 'index.html', `styles.css?v=${VERSION}`, `app.js?v=${VERSION}`, 'vendor/music-metadata.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
+  ...['ga', 'es', 'fr', 'de', 'pl', 'pt', 'it', 'nl'].map(l => `i18n/${l}.json?v=${VERSION}`),
 ];
 
 self.addEventListener('install', e => {

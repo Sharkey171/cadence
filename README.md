@@ -9,3 +9,8 @@ Offline music player for your own files. Installable web app (PWA) for Windows, 
 - `vendor/music-metadata.js` is the bundled tag reader (music-metadata, MIT), built with
   `esbuild entry.js --bundle --format=esm --minify` where entry.js is
   `export { parseBlob } from 'music-metadata';`
+- Translations: edit the tables in `i18n/strings-*.tsv` (one row per English phrase, a column per
+  language) and `i18n/patterns.tsv` (text with numbers), then run `python3 tools/build-i18n.py`
+  to rebuild `i18n/<lang>.json`. Song, album, artist and podcast names are never translated.
+- Version: bump `APP_VERSION` in `app.js`, `VERSION` in `sw.js` and the `?v=` numbers in
+  `index.html` together, and add a line to `RELEASES` in `app.js` for the What's new page.

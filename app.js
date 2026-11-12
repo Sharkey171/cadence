@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 const LINKS = {
   feedback: '',   // Google Form for "Send feedback" (button hidden until set)
   donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
 };
 const RELEASES = [
+  { v: 30, date: '2026-11-12', notes: ['Cadence in nine languages: English, Irish, Spanish, French, German, Polish, Portuguese, Italian and Dutch (Settings → Language)'] },
   { v: 29, date: '2026-11-12', notes: ['Share playlists as a link: the songs your friend has play from their own library, the rest open on YouTube Music'] },
   { v: 28, date: '2026-11-12', notes: ['Song radio: start from any song (⋯ → Song radio) or artist (Radio button) for an endless mix of similar music from your library'] },
   { v: 27, date: '2026-11-12', notes: ['Folder view: browse your music the way it is stored (Library → Folders)', 'Hide folders, and clips under 30 seconds, 1 or 2 minutes, from your library (Settings → Hide songs)'] },
@@ -128,7 +129,84 @@ const RELEASES = [
   { v: 20, date: '2026-11-11', notes: ['Eight themes and a Match album art colour option'] },
   { v: 18, date: '2026-11-11', notes: ['The phone’s Back button closes the screen in front instead of the app'] },
 ];
-const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+/* ---------------- languages ---------------- */
+// The app is written in English. In another language, on-screen text is swapped for its translation
+// as it appears (from i18n/<lang>.json). Song, album, artist and podcast names are never translated.
+const LANGS = { en: 'English', ga: 'Gaeilge', es: 'Español', fr: 'Français', de: 'Deutsch', pl: 'Polski', pt: 'Português', it: 'Italiano', nl: 'Nederlands' };
+let LANG = 'en', I18N = null;
+function pickLang() {
+  let pref = 'auto'; try { pref = localStorage.getItem('cadence-lang') || 'auto'; } catch {}
+  if (LANGS[pref]) return pref;
+  for (const l of navigator.languages || [navigator.language || 'en']) { const b = String(l).slice(0, 2).toLowerCase(); if (LANGS[b]) return b; }
+  return 'en';
+}
+const NO_TR = '.row-title,.row-sub,.row-album,.card-title,.card-sub,.tile span,#p-title,#p-artist,#np-title,#np-artist,#car-title,#car-artist,#yt-title,.crumbs,.miss-row .row-main,.bio,#lyr pre,.lrc,.lyr-src,.bar-row span,.imp-file,#tag-file,[translate=no],.hero h1:not([data-tr]),.folder-row .row-title,#side-playlists span,.edit-cands,.cand,textarea,.hero .muted a,#rad-cc,#menu .menu-title';   // text boxes are kept for their placeholder; their contents are never touched
+const plural = (key, n) => { const t = I18N.p[key]; if (typeof t === 'string') return t.replace('{n}', n); let cat = 'other'; try { cat = new Intl.PluralRules(LANG).select(+n); } catch {} return (t[cat] || t.other || '').replace('{n}', n); };
+const P = (key, vals) => Object.entries(vals).reduce((s, [k, v]) => s.replace(`{${k}}`, v), I18N.p[key] || '');
+const songsLen = m => plural('song', m[1]) + (m[3] ? ' · ' + (m[2] ? P('hr', { n: m[2] }) + ' ' : '') + P('min', { n: m[3] }) : '');
+const TR_PATTERNS = [
+  [/^(\d+) songs?(?: · (?:(\d+) hr )?(\d+) min)?$/, songsLen],
+  [/^((\d+) songs? · (?:\d+ hr )?\d+ min) in your library$/, m => P('inlib', { x: trCore(m[1]) || m[1] })],
+  [/^Added (\d+) songs?(?: · (\d+) already in library)?$/, m => P('added', { x: plural('song', m[1]) }) + (m[2] ? ' · ' + P('already', { n: m[2] }) : '')],
+  [/^(\d+) selected$/, m => P('selected', { n: m[1] })],
+  [/^Version (\d+)( · .+)?$/, m => P('version', { n: m[1] }) + (m[2] || '')],
+  [/^Top 50 in (.+)$/, m => P('top50in', { x: I18N.d[m[1]] || m[1] })],
+  [/^Adding music… (\d+) \/ (\d+)$/, m => P('adding', { a: m[1], b: m[2] })],
+  [/^Adding music… (\d+) done · (\d+) found so far$/, m => P('addingfound', { a: m[1], b: m[2] })],
+  [/^Reading song details… (\d+) \/ (\d+)$/, m => P('reading', { a: m[1], b: m[2] })],
+  [/^(.+): (On|Off)$/, m => I18N.d[m[1]] ? `${I18N.d[m[1]]}: ${I18N.d[m[2]]}` : null],
+  [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
+  [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
+  [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
+  [/^Sleep timer · (\d+) min left$/, m => P('minleft', { n: m[1] })],
+  [/^Results for “(.+)”$/, m => P('results', { x: m[1] })],
+  [/^Stations matching “(.+)”$/, m => P('matching', { x: m[1] })],
+  [/^Updated to version (\d+) — see What’s new in Settings$/, m => P('updated', { n: m[1] })],
+  [/^Song radio: (.+)$/, m => P('songradio', { x: m[1] })],
+  [/^The most popular podcasts in (.+) right now, from Apple's charts\.$/, m => P('pophere', { x: m[1] })],
+  [/^(\d+) songs? · (\d+) albums? · (\d+) playlists?$/, m => P('libline', { a: plural('song', m[1]), b: m[2], c: m[3] })],
+  [/^(\d+) copied into the app, (\d+) linked$/, m => P('copied', { a: m[1], b: m[2] })],
+  [/^([\d.]+) GB used of about (\d+) GB available to the app$/, m => P('usage', { a: m[1], b: m[2] })],
+];
+function trCore(core) {
+  const hit = I18N.d[core]; if (hit != null) return hit;
+  if (!/[A-Za-z]/.test(core)) return null;
+  for (const [re, fn] of TR_PATTERNS) { const m = re.exec(core); if (m) { const out = fn(m); if (out) return out; } }
+  return null;
+}
+function trString(s) { const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s); const out = m[2] && trCore(m[2]); return out ? m[1] + out + m[3] : null; }
+const trDone = new WeakMap(), trAttrDone = new WeakMap();
+function trText(n) {
+  if (trDone.get(n) === n.data) return;
+  const p = n.parentElement; if (!p || p.closest(NO_TR)) { trDone.set(n, n.data); return; }
+  const out = trString(n.data); if (out != null && out !== n.data) n.data = out;
+  trDone.set(n, n.data);
+}
+function trAttrs(el) {
+  let seen = trAttrDone.get(el); if (!seen) trAttrDone.set(el, seen = {});
+  for (const a of ['aria-label', 'placeholder', 'title']) {
+    const v = el.getAttribute(a); if (!v || seen[a] === v) continue;
+    const out = trString(v); if (out != null && out !== v) el.setAttribute(a, out);
+    seen[a] = el.getAttribute(a);
+  }
+}
+function trTree(root) {
+  if (root.nodeType === 3) return trText(root);
+  if (root.nodeType !== 1 || root.closest(NO_TR)) return;
+  trAttrs(root);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, { acceptNode: n => n.nodeType === 1 && n.matches(NO_TR) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  for (let n = w.nextNode(); n; n = w.nextNode()) n.nodeType === 3 ? trText(n) : trAttrs(n);
+}
+async function startLanguage() {
+  LANG = pickLang(); document.documentElement.lang = LANG;
+  regionName = (() => { try { return new Intl.DisplayNames([LANG], { type: 'region' }).of(CC) || ''; } catch { return ''; } })();
+  if (LANG === 'en') return;
+  try { I18N = await (await fetch(`i18n/${LANG}.json?v=${APP_VERSION}`)).json(); } catch { LANG = 'en'; document.documentElement.lang = 'en'; return; }
+  trTree(document.body);
+  new MutationObserver(ms => { for (const m of ms) { if (m.type === 'childList') m.addedNodes.forEach(trTree); else if (m.type === 'characterData') trText(m.target); else trAttrs(m.target); } })
+    .observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-label', 'placeholder', 'title'] });
+}
+const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(LANG === 'en' ? undefined : LANG, { day: 'numeric', month: 'long', year: 'numeric' });
 function showWhatsNew() {
   const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false;
   $('h3', d).textContent = 'What’s new';
@@ -1542,7 +1620,7 @@ async function rb(path) {
   }
   throw new Error('radio directory unreachable');
 }
-const regionName = (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(CC) || ''; } catch { return ''; } })();
+let regionName = (() => { try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(CC) || ''; } catch { return ''; } })();
 const hlsOK = !!audio.canPlayType('application/vnd.apple.mpegurl');
 async function radioList(q) {
   const cc = S.radCC ?? CC, tag = S.radTag;
@@ -1598,6 +1676,7 @@ async function addStation() {
   await idb.put('kv', S.stations, 'stations'); toast('Station added to your favourites'); rerender();
 }
 view.addEventListener('change', async e => {
+  if (e.target.dataset.set === 'lang') { try { localStorage.setItem('cadence-lang', e.target.value); } catch {} location.reload(); return; }
   if (e.target.dataset.set === 'minSecs') { S.hide.minSecs = +e.target.value; await idb.put('kv', S.hide, 'hide'); rebuild(); rerender(); toast(S.hide.minSecs ? 'Short clips hidden' : 'All lengths shown'); return; }
   if (e.target.id === 'rad-cc') { S.radCC = e.target.value; saveRadioPrefs(); rerender(); } });
 async function radioView() {
@@ -2231,7 +2310,7 @@ const VIEWS = {
   liked() {
     const ts = likedItems();
     viewIds = ts.map(t => t.id);
-    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="hero-text"><div class="kind">Playlist</div><h1>Liked songs</h1>
+    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="hero-text"><div class="kind">Playlist</div><h1 data-tr>Liked songs</h1>
       <div class="muted">${total(ts)}</div>${ts.length ? heroActions(`<button class="icon-btn" data-act="share-view" data-name="Liked songs" aria-label="Share these songs as a link">${ic('share')}</button>`) : ''}</div></div>`,
       ts.length ? trackList(viewIds) : '<div class="empty">Tap the heart on any song to save it here.</div>');
   },
@@ -2300,7 +2379,7 @@ const VIEWS = {
   mix(kind) {
     const m = MIXES[kind]; if (!m) return setView('<div class="empty">Not found.</div>');
     viewIds = m.ids();
-    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="hero-text"><div class="kind">Automatic playlist</div><h1>${m.name}</h1>
+    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="hero-text"><div class="kind">Automatic playlist</div><h1 data-tr>${m.name}</h1>
       <div class="muted">${total(viewIds.map(i => S.tracks.get(i)))}</div>${viewIds.length ? heroActions(`<button class="icon-btn" data-act="view-menu" aria-label="More options">${ic('dots')}</button>`) : ''}</div></div>`,
       viewIds.length ? trackList(viewIds) : '<div class="empty">Play some music and this fills in by itself.</div>');
   },
@@ -2347,6 +2426,9 @@ const VIEWS = {
     if (page() !== 'settings') return;
     const copied = [...S.tracks.values()].filter(t => !t.linked).length;
     setView('<h1>Settings</h1>',
+      `<div class="settings-block"><h2>Language</h2><p>Choose the language for Cadence. Song names and podcast titles stay as they are.</p>
+        <select data-set="lang" aria-label="Language"><option value="auto">Automatic (your device’s language)</option>${Object.entries(LANGS).map(([k, n]) => `<option value="${k}" translate="no" ${(() => { try { return localStorage.getItem('cadence-lang') === k; } catch { return false; } })() ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        ${LANG === 'ga' ? '<p style="margin-top:10px;font-size:13px">Is aistriúchán neamhoifigiúil é seo. Fáilte roimh cheartúcháin.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>Add music</h2><p>Files you add are copied into the app so they always play offline. On a computer you can instead link a folder, which plays the files where they are without using extra space.</p>
         <div class="hero-actions"><button class="btn primary" data-act="add-files">${ic('file')}Add files</button><button class="btn" data-act="add-folder">${ic('folder')}${window.showDirectoryPicker ? 'Link a folder' : 'Add a folder'}</button></div></div>`,
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
@@ -2675,6 +2757,7 @@ if (matchMedia('(hover: hover)').matches) {
 /* ---------------- boot ---------------- */
 async function boot() {
   $$('[data-ic]').forEach(e => e.insertAdjacentHTML('afterbegin', ic(e.dataset.ic)));
+  await startLanguage();
   db = await openDB();
   const [tracks, playlists, artKeys, artBlobs, state, folders] = await Promise.all([
     idb.all('tracks'), idb.all('playlists'), idb.keys('art'), idb.all('art'), idb.get('kv', 'state'), idb.get('kv', 'folders'),

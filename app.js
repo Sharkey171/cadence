@@ -133,17 +133,18 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
-  { v: 41, date: '2026-11-13', notes: ['Podcasts: Up next list (⋯ → Add to Up next), shown at the top of Podcasts', 'Mark episodes as played; finished episodes are marked by themselves', 'Auto-download: new episodes of a show you follow download by themselves while Seylumi is open'] },
-  { v: 40, date: '2026-11-13', notes: ['Mini player window on computers: a small always-on-top player (the button next to the queue, in Chrome or Edge)'] },
-  { v: 39, date: '2026-11-13', notes: ['Made for you: four Daily Mixes on Home, new every day, built from your own music', 'Your year in music: your top artists and songs as a picture to share (Home or Your stats)'] },
-  { v: 38, date: '2026-11-13', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
-  { v: 37, date: '2026-11-13', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
+  { v: 42, date: '2026-11-12', notes: ['Automatic backups: a weekly reminder, or on a computer a backup saved into a folder of your choice every week (Settings → Back up and transfer)'] },
+  { v: 41, date: '2026-11-12', notes: ['Podcasts: Up next list (⋯ → Add to Up next), shown at the top of Podcasts', 'Mark episodes as played; finished episodes are marked by themselves', 'Auto-download: new episodes of a show you follow download by themselves while Seylumi is open'] },
+  { v: 40, date: '2026-11-12', notes: ['Mini player window on computers: a small always-on-top player (the button next to the queue, in Chrome or Edge)'] },
+  { v: 39, date: '2026-11-12', notes: ['Made for you: four Daily Mixes on Home, new every day, built from your own music', 'Your year in music: your top artists and songs as a picture to share (Home or Your stats)'] },
+  { v: 38, date: '2026-11-12', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
+  { v: 37, date: '2026-11-12', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
   { v: 36, date: '2026-11-12', notes: ['Now Playing animations: Bars, Wave, Ring or Pulse, moving with the music (⋯ on Now Playing, or Settings → Appearance)', 'Little dancing bars on the song that is playing'] },
   { v: 35, date: '2026-11-12', notes: ['Fixed stretched screenshots on the welcome page on phones'] },
   { v: 34, date: '2026-11-12', notes: ['A welcome page that explains Seylumi and how to install it, and picture previews when you share a link'] },
@@ -1493,19 +1494,58 @@ function moveQ(i, d) { [S.queue[i], S.queue[i + d]] = [S.queue[i + d], S.queue[i
 
 /* ---------------- backup: carry playlists + likes between devices ---------------- */
 const sigOf = t => `${t.fileName}|${t.size}`;
-function exportBackup() {
-  const data = {
+function backupData() {
+  return {
     app: 'cadence', version: 1, exportedAt: new Date().toISOString(),
     playlists: S.playlists.map(p => ({ name: p.name, smart: p.smart, tracks: p.trackIds.map(i => S.tracks.get(i)).filter(Boolean).map(sigOf) })),
     liked: [...S.tracks.values()].filter(t => t.liked).sort((a, b) => a.liked - b.liked).map(sigOf),
     ratings: Object.fromEntries([...S.tracks.values()].filter(t => t.rating).map(t => [sigOf(t), t.rating])),
   };
+}
+function exportBackup() {
+  const data = backupData();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
   a.download = `seylumi-backup-${data.exportedAt.slice(0, 10)}.json`;
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   toast('Backup file saved to your downloads');
+  noteBackup();
+}
+
+/* automatic backups: a weekly reminder, or (on computers) a file saved by itself into a folder you choose */
+const BK = { mode: 'remind', last: 0, dirName: '' }; let bkDir = null;
+const BK_EVERY = 7 * 864e5;
+const saveBk = () => idb.put('kv', { ...BK }, 'autobk').catch(() => {});
+const canBkFolder = () => !!window.showDirectoryPicker && isDesktop();
+function noteBackup() { BK.last = Date.now(); saveBk(); if (page() === 'settings') rerender(); }
+const hasBackupWorth = () => S.playlists.some(p => !p.smart) || [...S.tracks.values()].some(t => t.liked || t.rating);
+async function backupToFolder(ask = false) {
+  if (!bkDir) return false;
+  try {
+    let perm = await bkDir.queryPermission?.({ mode: 'readwrite' }) || 'granted';
+    if (perm !== 'granted' && ask) perm = await bkDir.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return false;
+    const data = backupData(), fh = await bkDir.getFileHandle(`seylumi-backup-${data.exportedAt.slice(0, 10)}.json`, { create: true });
+    const w = await fh.createWritable(); await w.write(JSON.stringify(data, null, 1)); await w.close();
+    noteBackup(); return true;
+  } catch (e) { console.warn('auto backup', e); return false; }
+}
+async function chooseBkFolder() {
+  try { bkDir = await showDirectoryPicker({ mode: 'readwrite', id: 'backup' }); } catch { return; }
+  BK.mode = 'folder'; BK.dirName = bkDir.name;
+  try { await idb.put('kv', bkDir, 'autobkDir'); } catch {}
+  await saveBk();
+  toast(await backupToFolder(true) ? `Backed up to “${bkDir.name}”. Seylumi will do this every week by itself.` : 'Seylumi couldn’t write to that folder');
+  rerender();
+}
+async function autoBackupCheck() {
+  if (BK.mode === 'off' || Date.now() - BK.last < BK_EVERY || !hasBackupWorth()) return;
+  if (BK.mode === 'folder' && await backupToFolder(false)) return;
+  if (document.querySelector('dialog[open]') || importing) return;
+  const go = await ask({ title: 'Back up your playlists?', text: `It’s been a while since your playlists, likes and ratings were backed up. A backup file lets you get them back on a new phone or computer.${BK.mode === 'folder' ? ' Seylumi needs your permission again to save into your backup folder.' : ''}`, ok: 'Back up now' });
+  if (go) { if (BK.mode === 'folder' && await backupToFolder(true)) toast('Backed up'); else exportBackup(); }
+  else { BK.last = Date.now() - BK_EVERY + 3 * 864e5; saveBk(); }   // ask again in three days
 }
 async function importBackup(file) {
   let d = null;
@@ -2805,7 +2845,9 @@ const VIEWS = {
       `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Seylumi can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
-        <div class="hero-actions"><button class="btn" data-act="export">${ic('save')}Save backup file</button><button class="btn" data-act="import-backup">${ic('up')}Restore from file</button></div></div>`,
+        <div class="hero-actions"><button class="btn" data-act="export">${ic('save')}Save backup file</button><button class="btn" data-act="import-backup">${ic('up')}Restore from file</button></div>
+        <h2 style="margin-top:20px">Automatic backup</h2><div class="chips">${[['off', 'Off'], ['remind', 'Weekly reminder'], ...(canBkFolder() ? [['folder', 'Save to a folder every week']] : [])].map(([k, l]) => `<button class="chip ${BK.mode === k ? 'active' : ''}" data-act="bk-mode" data-v="${k}">${l}</button>`).join('')}</div>
+        <p class="muted" style="margin-top:8px">${BK.mode === 'folder' && BK.dirName ? `Saving into “${esc(BK.dirName)}”. ` : ''}${BK.last ? `Last backup: ${new Date(BK.last).toLocaleDateString(LANG, { day: 'numeric', month: 'long', year: 'numeric' })}` : 'No backup yet'}</p></div>`,
       installEvt ? `<div class="settings-block"><h2>Install</h2><p>Install Seylumi as an app with its own window and icon.</p><button class="btn primary" data-act="install">Install app</button></div>` : '',
     );
   },
@@ -3166,7 +3208,8 @@ const A = {
   },
   'toggle-online': async () => { S.online = S.online === false; await idb.put('kv', S.online, 'online'); rerender(); },
   'find-covers': findAllCovers,
-  'export': exportBackup,
+  'export': async () => { if (BK.mode === 'folder' && bkDir && await backupToFolder(true)) return toast(`Backed up to “${BK.dirName}”`); exportBackup(); },
+  'bk-mode': el => { const v = el.dataset.v; if (v === 'folder') return chooseBkFolder(); BK.mode = v; saveBk(); rerender(); },
   'import-backup': () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json'; i.onchange = () => i.files[0] && importBackup(i.files[0]); i.click(); },
   'reconnect': async () => {
     for (const f of S.folders) { try { await f.handle.requestPermission({ mode: 'read' }); } catch {} }
@@ -3251,6 +3294,8 @@ async function boot() {
   S.stations = await idb.get('kv', 'stations') || [];
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
+  { const bk = await idb.get('kv', 'autobk'); if (bk) Object.assign(BK, bk); else { BK.last = Date.now(); saveBk(); } }
+  if (BK.mode === 'folder') bkDir = await idb.get('kv', 'autobkDir').catch(() => null) || null;
   S.played = await idb.get('kv', 'played') || {}; S.upnext = await idb.get('kv', 'upnext') || [];
   S.ia = await idb.get('kv', 'iaSaved') || [];
   { const hd = await idb.get('kv', 'hide'); if (hd) S.hide = { folders: Array.isArray(hd.folders) ? hd.folders : [], minSecs: +hd.minSecs || 0 }; }
@@ -3281,6 +3326,7 @@ async function boot() {
   rebuild(); renderSidePlaylists(); syncPlayer();
   lastHash = location.hash; route();
   checkFolderAccess().then(ok => { if (ok) resumePending(); });
+  setTimeout(autoBackupCheck, 30000);
   if (S.pods.some(p => p.auto)) { setTimeout(autoDownload, 20000); setInterval(autoDownload, 3600e3); }
   appReady = true; syncTint(); document.documentElement.dataset.ready = '1';
   try {

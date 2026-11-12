@@ -111,12 +111,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 27;
+const APP_VERSION = 28;
 const LINKS = {
   feedback: '',   // Google Form for "Send feedback" (button hidden until set)
   donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
 };
 const RELEASES = [
+  { v: 28, date: '2026-11-12', notes: ['Song radio: start from any song (⋯ → Song radio) or artist (Radio button) for an endless mix of similar music from your library'] },
   { v: 27, date: '2026-11-12', notes: ['Folder view: browse your music the way it is stored (Library → Folders)', 'Hide folders, and clips under 30 seconds, 1 or 2 minutes, from your library (Settings → Hide songs)'] },
   { v: 26, date: '2026-11-12', notes: ['Version number and this What’s new page', 'Updates now install with one tap on Restart, or by themselves when you open the app', 'Send feedback and Support the app buttons in Settings'] },
   { v: 25, date: '2026-11-12', notes: ['Top 50 podcast charts for 19 categories, for your country'] },
@@ -736,6 +737,7 @@ const nextIndex = () => S.qIndex < S.queue.length - 1 ? S.qIndex + 1 : S.repeat 
 async function loadCurrent(autoplay = true, startAt = 0, fade = 0) {
   const t = current(); if (!t) return;
   const token = ++loadToken, old = audio;
+  topUpRadio();
   S.resumeAt = 0; logged = false;
   syncPlayer(); saveState();
   let el = null;
@@ -775,13 +777,64 @@ function playbackFailed(t) {
 // State checks (audio.error / audio.ended) ignore stale events left over from the priming clip.
 onAudio('error', () => { const t = current(); if (S.loadedId && t && audio.error) playbackFailed(t); });
 
-function playContext(ids, i = 0) {
+function playContext(ids, i = 0, keepRadio = false) {
+  if (!keepRadio) S.radio = null;
   ids = ids.filter(has); if (!ids.length) return;
   i = Math.max(0, Math.min(i, ids.length - 1));
   S.baseQueue = [...ids];
   if (S.shuffle) { const first = ids[i]; const rest = ids.filter((_, j) => j !== i); S.queue = [first, ...shuffleArr(rest)]; S.qIndex = 0; }
   else { S.queue = [...ids]; S.qIndex = i; }
   loadCurrent(true);
+}
+/* ---------------- song radio ---------------- */
+// Builds an endless queue of songs like the one you start from, using only your own library:
+// same artist, genre, era and folder, and songs you tend to play around it.
+function radioPicks(seed, n, exclude) {
+  const hist = S.hist, near = new Map();
+  // songs played within 30 minutes either side of a play of the seed
+  for (let i = 0; i < hist.length; i++) if (hist[i].i === seed.id) {
+    for (let j = Math.max(0, i - 15); j < Math.min(hist.length, i + 16); j++) if (j !== i && Math.abs(hist[j].a - hist[i].a) < 1800e3) near.set(hist[j].i, (near.get(hist[j].i) || 0) + 1);
+  }
+  const g = norm(seed.genre), ar = norm(seed.albumArtist || seed.artist), dir = (seed.path || '').replace(/[^/]*$/, ''), up = dir.replace(/[^/]*\/$/, '');
+  const scored = [];
+  for (const t of shown()) {
+    if (t.id === seed.id || exclude.has(t.id)) continue;
+    let sc = Math.random() * 2;
+    const tar = norm(t.albumArtist || t.artist);
+    if (ar && tar === ar) sc += 5;
+    if (g && norm(t.genre) === g) sc += 4;
+    if (seed.year && t.year) { const d = Math.abs(seed.year - t.year); sc += d <= 3 ? 2 : d <= 7 ? 1 : 0; }
+    if (dir && t.path && t.folderId === seed.folderId) { if (t.path.startsWith(dir)) sc += 2.5; else if (up && t.path.startsWith(up)) sc += 1.5; }
+    sc += Math.min(6, (near.get(t.id) || 0) * 2);
+    if (t.liked) sc += 1;
+    scored.push([sc, t]);
+  }
+  scored.sort((a, b) => b[0] - a[0]);
+  const pool = scored.slice(0, Math.max(n * 4, 60)).map(x => x[1]), out = [], perArtist = new Map();
+  let lastArtist = norm(seed.artist);
+  // take from the best matches, without long runs of one artist
+  while (out.length < n && pool.length) {
+    let k = pool.findIndex(t => { const a = norm(t.artist); return a !== lastArtist && (perArtist.get(a) || 0) < Math.max(3, n * 0.3); });
+    if (k < 0) k = 0;
+    const [t] = pool.splice(k, 1); out.push(t.id); const a = norm(t.artist); perArtist.set(a, (perArtist.get(a) || 0) + 1); lastArtist = a;
+  }
+  return out;
+}
+function startRadio(seedId) {
+  const seed = S.tracks.get(seedId); if (!seed) return;
+  const ids = [seed.id, ...radioPicks(seed, 30, new Set())];
+  if (ids.length < 2) return toast('Add more music to make a radio from this song');
+  S.shuffle = false; S.radio = { seed: seed.id, title: seed.title };
+  playContext(ids, 0, true);
+  toast(`Song radio: ${seed.title}`);
+  if (page() === 'queue') rerender();
+}
+// keep a radio going: top the queue up as it runs low
+function topUpRadio() {
+  if (!S.radio || S.queue.length - S.qIndex > 5) return;
+  const seed = S.tracks.get(S.radio.seed); if (!seed) return;
+  const more = radioPicks(seed, 20, new Set(S.queue.slice(-150)));
+  if (more.length) { S.queue.push(...more); if (S.baseQueue) S.baseQueue.push(...more); saveState(); if (page() === 'queue') rerender(); }
 }
 function shufflePlay(ids) { if (!ids.length) return; S.shuffle = true; playContext(ids, Math.floor(Math.random() * ids.length)); }
 function toggle() {
@@ -957,7 +1010,7 @@ function saveState() {
   if (cur?.kind === 'episode' && S.loadedId === cur.id && audio.currentTime > 5) { S.epos[cur.id] = audio.currentTime; idb.put('kv', S.epos, 'epos').catch(() => {}); }
   saveTimer = setTimeout(() => idb.put('kv', {
     remote: [...new Set(S.queue)].filter(id => S.remote.has(id)).map(id => S.remote.get(id)),
-    queue: S.queue, qIndex: S.qIndex, baseQueue: S.baseQueue, shuffle: S.shuffle, repeat: S.repeat,
+    queue: S.queue, qIndex: S.qIndex, baseQueue: S.baseQueue, shuffle: S.shuffle, repeat: S.repeat, radio: S.radio,
     volume: S.volume, position: S.loadedId ? audio.currentTime : S.resumeAt, sort: S.sort,
   }, 'state').catch(() => {}), 300);
 }
@@ -1012,6 +1065,7 @@ function trackMenu(t, ev, ctx = {}) {
   if (t.url) return remoteMenu(t, ev, ctx);
   const pl = ctx.playlistId && S.playlists.find(p => p.id === ctx.playlistId);
   openMenu([
+    { label: 'Song radio', icon: 'radio', fn: () => { closeNP(); startRadio(t.id); } },
     { label: 'Play next', icon: 'next', fn: () => enqueue([t.id], true) },
     { label: 'Add to queue', icon: 'queue', fn: () => enqueue([t.id], false) },
     { label: 'Add to playlist', icon: 'plus', fn: () => pickPlaylist([t.id]) },
@@ -2099,7 +2153,7 @@ const VIEWS = {
     const albums = [...S.albums.values()].filter(a => norm(a.artist) === key).sort((a, b) => (b.year || 0) - (a.year || 0));
     viewIds = [...ar.tracks].sort(SORTS.album).map(t => t.id);
     setView(`<div class="hero">${artDiv(ar.artId, ar.name, 'round', 'user')}<div class="hero-text"><div class="kind">Artist</div><h1>${esc(ar.name)}</h1>
-      <div class="muted">${total(ar.tracks)}</div>${heroActions(saveBtn)}</div></div>`, '<div id="bio"></div>',
+      <div class="muted">${total(ar.tracks)}</div>${heroActions(`<button class="btn" data-act="artist-radio" aria-label="Play this artist mixed with similar music from your library">${ic('radio')}Radio</button>` + saveBtn)}</div></div>`, '<div id="bio"></div>',
       albums.length ? `<h2>Albums</h2><div class="grid">${albums.map(albumCard).join('')}</div>` : '',
       '<h2>Songs</h2>', trackList(viewIds));
     const here = location.hash;
@@ -2223,7 +2277,7 @@ const VIEWS = {
     const t = current();
     if (!t) return setView('<h1>Queue</h1><div class="empty">Nothing is queued. Play something to get started.</div>');
     const upcoming = S.queue.slice(S.qIndex + 1);
-    setView(`<h1>Queue</h1><div class="hero-actions"><button class="btn ${sleepAt || sleepEOT ? 'primary' : ''}" data-act="sleep">${ic('moon')}${sleepLabel()}</button></div><h2>Now playing</h2>`, trackList([t.id], { nowRow: true }),
+    setView(`<h1>Queue</h1>${S.radio ? `<div class="radio-note">${ic('radio')}<span>Song radio from <b>${esc(S.radio.title)}</b> — it keeps adding similar songs as you listen.</span><button class="btn" data-act="radio-stop">Turn off</button></div>` : ''}<div class="hero-actions"><button class="btn ${sleepAt || sleepEOT ? 'primary' : ''}" data-act="sleep">${ic('moon')}${sleepLabel()}</button></div><h2>Now playing</h2>`, trackList([t.id], { nowRow: true }),
       upcoming.length ? '<h2>Next up</h2>' : '', upcoming.length ? trackList(upcoming, { queueOffset: S.qIndex + 1 }) : null);
   },
   async settings() {
@@ -2391,6 +2445,8 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
+  'artist-radio': () => { const ts = viewIds.map(id => S.tracks.get(id)).filter(Boolean); if (!ts.length) return; const seed = [...ts].sort((a, b) => (b.plays || 0) - (a.plays || 0) || (b.liked || 0) - (a.liked || 0))[0]; startRadio(seed.id); },
+  'radio-stop': () => { S.radio = null; saveState(); toast('Radio off: the queue stops at its end'); rerender(); },
   'folder-hide': () => { const c = S.curFolder; if (!c) return; const key = `${c.fid}|${c.prefix}`, by = folderHiddenBy(c.fid, c.prefix); setFolderHidden(by || key, !by); },
   'unhide': el => setFolderHidden(el.dataset.key, false),
   'check-update': async () => {
@@ -2576,7 +2632,7 @@ async function boot() {
     S.queue = (state.queue || []).filter(has);
     S.qIndex = Math.max(S.queue.length ? 0 : -1, S.queue.indexOf((state.queue || [])[state.qIndex]));
     S.baseQueue = state.baseQueue?.filter(has) || null;
-    S.shuffle = !!state.shuffle; S.repeat = state.repeat || 'off'; S.sort = state.sort || 'title';
+    S.shuffle = !!state.shuffle; S.repeat = state.repeat || 'off'; S.radio = state.radio && S.tracks.has(state.radio.seed) ? state.radio : null; S.sort = state.sort || 'title';
     S.resumeAt = S.queue[S.qIndex] === (state.queue || [])[state.qIndex] ? state.position || 0 : 0;
     if (state.volume != null) S.volume = state.volume;
   }

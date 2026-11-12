@@ -415,3 +415,7 @@ body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-
 .hidden-note { background: var(--raised); border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; color: var(--muted); font-size: 14px; }
 .settings-block select { max-width: 100%; }
 @media (max-width: 768px) { .folder-row { padding: 6px 0; } }
+
+.radio-note { display: flex; align-items: center; gap: 12px; background: var(--raised); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; }
+.radio-note svg { color: var(--accent); flex: none; }
+.radio-note span { flex: 1; min-width: 0; }

@@ -79,6 +79,7 @@ const ICONS = {
   share: stroke('<circle cx="18" cy="5" r="2.500"/><circle cx="6" cy="12" r="2.500"/><circle cx="18" cy="19" r="2.500"/><path d="M8.200 10.900l7.600-4.600M8.200 13.100l7.600 4.600"/>'),
   star: stroke('<path d="M12 3.500l2.600 5.300 5.900.900-4.300 4.100 1 5.800L12 16.800l-5.200 2.800 1-5.800-4.300-4.100 5.900-.900z"/>'),
   qr: stroke('<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/>'),
+  pip: stroke('<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="7" rx="1" fill="currentColor"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -132,12 +133,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 40, date: '2026-11-13', notes: ['Mini player window on computers: a small always-on-top player (the button next to the queue, in Chrome or Edge)'] },
   { v: 39, date: '2026-11-13', notes: ['Made for you: four Daily Mixes on Home, new every day, built from your own music', 'Your year in music: your top artists and songs as a picture to share (Home or Your stats)'] },
   { v: 38, date: '2026-11-13', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
   { v: 37, date: '2026-11-13', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
@@ -1037,7 +1039,7 @@ function syncTime() {
   if (!seeking) $$('.seek').forEach(s => { s.value = p * 10; s.style.setProperty('--p', p + '%'); });
   $$('.t-cur').forEach(e => e.textContent = fmt(cur));
   $$('.t-dur').forEach(e => e.textContent = t?.live ? 'LIVE' : fmt(dur));
-  $('#mini-progress i').style.width = p + '%';
+  $('#mini-progress i').style.width = p + '%'; syncMiniTime(p);
   if ('mediaSession' in navigator && S.loadedId && dur && isFinite(dur)) {
     try { navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: audio.playbackRate || 1 }); } catch {}
   }
@@ -1101,7 +1103,7 @@ function syncPlayer() {
   $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
   $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
   document.title = t && on ? `${t.title} · ${t.artist || 'Seylumi'}` : 'Seylumi';
-  markPlaying(); syncTime();
+  markPlaying(); syncTime(); syncMini();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = t ? new MediaMetadata({
       title: t.title, artist: t.artist || '', album: t.album || '',
@@ -1137,6 +1139,48 @@ function saveState() {
   }, 'state').catch(() => {}), 300);
 }
 addEventListener('pagehide', saveState);
+
+/* ---------------- mini player window (computers: Chrome and Edge) ---------------- */
+let pipWin = null;
+const canMini = () => 'documentPictureInPicture' in window;
+async function openMini() {
+  if (pipWin) { pipWin.focus?.(); return; }
+  try { pipWin = await documentPictureInPicture.requestWindow({ width: 300, height: 380 }); }
+  catch (e) { console.warn('mini player', e); return toast('The mini player couldn’t open'); }
+  const d = pipWin.document;
+  // the new window has no address of its own, so stylesheets must be given in full
+  for (const sh of document.styleSheets) {
+    try { const st = d.createElement('style'); st.textContent = [...sh.cssRules].map(r => r.cssText).join('\n'); d.head.append(st); }
+    catch { if (sh.href) { const l = d.createElement('link'); l.rel = 'stylesheet'; l.href = sh.href; d.head.append(l); } }   // fonts from another site
+  }  const root = document.documentElement; d.documentElement.style.cssText = root.style.cssText;
+  for (const a of root.attributes) if (a.name.startsWith('data-') || a.name === 'lang') d.documentElement.setAttribute(a.name, a.value);
+  d.title = 'Seylumi';
+  d.body.className = 'mini-win';
+  d.body.innerHTML = `<div class="mw-art art"></div>
+    <div class="mw-meta"><div class="mw-title"></div><div class="mw-artist"></div></div>
+    <div class="mw-bar"><i></i></div>
+    <div class="mw-ctrls"><button class="icon-btn mw-like" data-act="like-current" aria-label="Like">${ic('heart')}</button><button class="icon-btn" data-act="prev" aria-label="Previous song">${ic('prev')}</button>
+      <button class="pp mw-pp" data-act="toggle" aria-label="Play or pause"></button><button class="icon-btn" data-act="next" aria-label="Next song">${ic('next')}</button><button class="icon-btn" data-act="mini-back" aria-label="Back to the full app">${ic('pip')}</button></div>`;
+  d.addEventListener('click', e => { const el = e.target.closest('[data-act]'); if (el) A[el.dataset.act]?.(el, e); });
+  d.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); toggle(); } else if (e.key === 'ArrowRight') next(); else if (e.key === 'ArrowLeft') prev(); });
+  // the page's own translation only watches the main window, so translate the labels here once
+  if (I18N) for (const b of d.querySelectorAll('[aria-label]')) { const tr = trCore(b.getAttribute('aria-label')); if (tr) b.setAttribute('aria-label', tr); }
+  pipWin.addEventListener('pagehide', () => { pipWin = null; syncMiniBtn(); });
+  syncMini(); syncMiniBtn();
+}
+function syncMini() {
+  if (!pipWin) return;
+  const d = pipWin.document, t = current(), on = playing();
+  const q = sel => d.querySelector(sel); if (!q('.mw-title')) return;
+  q('.mw-title').textContent = t ? t.title : L('Nothing playing'); q('.mw-artist').textContent = t ? (t.artist || L('Unknown artist')) : '';
+  setArt(q('.mw-art'), t);
+  q('.mw-pp').innerHTML = ic(on ? 'pause' : 'play'); q('.mw-pp').setAttribute('aria-label', L(on ? 'Pause' : 'Play'));
+  q('.mw-like').classList.toggle('on', !!t?.liked); q('.mw-like').hidden = !t || !!t.live;
+  d.title = t ? `${t.title} · Seylumi` : 'Seylumi';
+}
+function syncMiniTime(p) { if (pipWin) { const i = pipWin.document.querySelector('.mw-bar i'); if (i) i.style.width = p + '%'; } }
+function syncMiniBtn() { $$('.b-mini').forEach(b => { b.hidden = !canMini() || !isDesktop(); b.classList.toggle('on', !!pipWin); }); }
+syncMiniBtn(); matchMedia('(min-width: 769px)').addEventListener('change', syncMiniBtn);
 
 /* ---------------- library mutations ---------------- */
 async function toggleLike(id) {
@@ -2933,6 +2977,8 @@ const A = {
   },
   'new-playlist': () => newPlaylist(),
   'toggle': toggle, 'next': () => next(), 'prev': prev, 'shuffle': toggleShuffle, 'repeat': cycleRepeat,
+  'mini-player': () => pipWin ? pipWin.close() : openMini(),
+  'mini-back': () => { window.focus(); pipWin?.close(); },
   'like-current': () => { const t = current(); if (t) toggleLike(t.id); },
   'open-np': openNP, 'close-np': closeNP,
   'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e, { np: true }); },

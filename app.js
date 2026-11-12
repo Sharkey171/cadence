@@ -109,6 +109,28 @@ const T = id => S.tracks.get(id) || S.remote.get(id);
 const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
+// ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
+const APP_VERSION = 26;
+const LINKS = {
+  feedback: '',   // Google Form for "Send feedback" (button hidden until set)
+  donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
+};
+const RELEASES = [
+  { v: 26, date: '2026-11-12', notes: ['Version number and this What’s new page', 'Updates now install with one tap on Restart, or by themselves when you open the app', 'Send feedback and Support the app buttons in Settings'] },
+  { v: 25, date: '2026-11-12', notes: ['Top 50 podcast charts for 19 categories, for your country'] },
+  { v: 24, date: '2026-11-11', notes: ['Linked folders: every song is added at once; names, lengths and covers are filled in afterwards in the background'] },
+  { v: 22, date: '2026-11-11', notes: ['Fixed a blank screen on start with Match album art on', 'A recovery screen if the app ever fails to start'] },
+  { v: 20, date: '2026-11-11', notes: ['Eight themes and a Match album art colour option'] },
+  { v: 18, date: '2026-11-11', notes: ['The phone’s Back button closes the screen in front instead of the app'] },
+];
+const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+function showWhatsNew() {
+  const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false;
+  $('h3', d).textContent = 'What’s new';
+  $('pre', d).textContent = RELEASES.map(r => `Version ${r.v} · ${fmtDate(r.date)}\n${r.notes.map(n => '• ' + n).join('\n')}`).join('\n\n');
+  $('.lyr-src', d).textContent = `You have version ${APP_VERSION}.`;
+  d.showModal(); $('pre', d).scrollTop = 0;
+}
 const THEMES = {
   dark:     { name: 'Midnight', tone: 'dark',  bg: '#0e0e12', panel: '#15151b', raised: '#1d1d25', accent: '#ff7a59' },
   oled:     { name: 'Pure black', tone: 'dark', bg: '#000000', panel: '#0b0b0b', raised: '#161616', accent: '#5b9dff' },
@@ -2164,6 +2186,12 @@ const VIEWS = {
         <h2 style="margin-top:20px">Accent colour</h2>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
+      `<div class="settings-block"><h2>About Cadence</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
+        <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
+        ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
+        ${LINKS.donate ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
+        <a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
+        ${LINKS.donate ? '<p style="margin-top:12px">Cadence is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
         <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
@@ -2245,7 +2273,7 @@ function nav(hash) {
 }
 
 /* ---------------- actions ---------------- */
-let installEvt = null;
+let installEvt = null, updateReady = false;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (page() === 'settings') route(); });
 
 const A = {
@@ -2301,6 +2329,13 @@ const A = {
   },
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
+  'whats-new': showWhatsNew,
+  'check-update': async () => {
+    toast('Checking for updates…');
+    try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); setTimeout(() => { if (!updateReady) toast(`You have the latest version (${APP_VERSION})`); }, 4000); }
+    catch { toast('Couldn’t check right now. Try again when you’re online.'); }
+  },
+  'restart-update': () => location.reload(),
   'add-feed': addFeed, 'add-station': addStation,
   'yt-play': el => ytStart(el.closest('.ytlist')._items, +el.dataset.i),
   'yt-save': async el => {
@@ -2486,11 +2521,19 @@ async function boot() {
   lastHash = location.hash; route();
   checkFolderAccess().then(ok => { if (ok) resumePending(); });
   appReady = true; syncTint(); document.documentElement.dataset.ready = '1';
+  try {
+    const seen = +localStorage.getItem('cadence-version') || 0;
+    if (seen && seen < APP_VERSION) setTimeout(() => toast(`Updated to version ${APP_VERSION} — see What’s new in Settings`), 1500);
+    localStorage.setItem('cadence-version', APP_VERSION);
+  } catch {}
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
     const hadSW = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadSW) return;
-      if (playing()) toast('Update ready — reopen Cadence to get it'); else location.reload();
+      updateReady = true;
+      // Just opened and nothing playing: switch to the new version straight away. Otherwise ask.
+      if (performance.now() < 20000 && !playing() && !importing) return location.reload();
+      $('#update').hidden = false;
     });
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('offline support unavailable', e));
   }

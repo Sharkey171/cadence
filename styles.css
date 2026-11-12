@@ -395,3 +395,7 @@ body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-
 .pod-genres::-webkit-scrollbar { display: none; }
 .pod-genres .chip { flex: none; }
 @media (max-width: 768px) { .card.ranked::before { top: 12px; left: 12px; } .pod-genres { margin-right: -16px; padding-right: 16px; } }
+
+#update { position: fixed; left: 50%; transform: translateX(-50%); bottom: 96px; z-index: 26; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 30px #000a; font-weight: 600; white-space: nowrap; }
+#update .btn { padding: 7px 16px; }
+@media (max-width: 768px) { #update { bottom: 140px; } }

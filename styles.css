@@ -467,3 +467,4 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .mini-win .mw-ctrls { display: flex; align-items: center; gap: 6px; }
 .mini-win .mw-like.on { color: var(--accent); }
 .b-mini.on { color: var(--accent); }
+.row.played .row-title { opacity: .55; }

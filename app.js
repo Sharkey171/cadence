@@ -122,7 +122,7 @@ const S = {
   artUrls: new Map(), folders: [],
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
-  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
+  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, played: {}, upnext: [], podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
   hide: { folders: [], minSecs: 0 }, shownList: [],
   radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false, viz: 'bars', smartShuffle: true },
@@ -133,12 +133,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 40;
+const APP_VERSION = 41;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 41, date: '2026-11-13', notes: ['Podcasts: Up next list (⋯ → Add to Up next), shown at the top of Podcasts', 'Mark episodes as played; finished episodes are marked by themselves', 'Auto-download: new episodes of a show you follow download by themselves while Seylumi is open'] },
   { v: 40, date: '2026-11-13', notes: ['Mini player window on computers: a small always-on-top player (the button next to the queue, in Chrome or Edge)'] },
   { v: 39, date: '2026-11-13', notes: ['Made for you: four Daily Mixes on Home, new every day, built from your own music', 'Your year in music: your top artists and songs as a picture to share (Home or Your stats)'] },
   { v: 38, date: '2026-11-13', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
@@ -194,6 +195,8 @@ const TR_PATTERNS = [
   [/^Daily Mix (\d)$/, m => P('dailymix', { n: m[1] })],
   [/^(.+), (.+) and more$/, m => P('andmore', { a: m[1], b: m[2] })],
   [/^(\d+) plays · (\d+) artists · (\d+) different songs\. Counted on this device only\.$/, m => P('yearstats', { a: m[1], b: m[2], c: m[3] })],
+  [/^(\d+) new episodes? downloaded$/, m => P('newdl', { n: m[1] })],
+  [/^(\d+) added to Up next$/, m => P('upadded', { n: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -997,7 +1000,7 @@ function enqueue(ids, nextUp) {
 
 onAudio('ended', () => {
   if (!S.loadedId || !audio.ended) return;
-  if (current()?.kind === 'episode') { delete S.epos[current().id]; idb.put('kv', S.epos, 'epos').catch(() => {}); }
+  if (current()?.kind === 'episode') setPlayed([current().id], true);
   if (sleepEOT) {
     setSleep(0, true); toast('Sleep timer ended');
     if (S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(false); } else syncPlayer();
@@ -1722,13 +1725,14 @@ function drawPodcast({ pod, eps }) {
   if (mine && eps[0]?.date && mine.seen !== eps[0].date) { mine.seen = eps[0].date; idb.put('kv', S.pods, 'pods').catch(() => {}); }   // opening the show clears its New badge
   setView(`<div class="hero">${safeUrl(pod.art) ? `<div class="art" style="background-image:url('${safeUrl(pod.art)}')"></div>` : artDiv(null, pod.name, '', 'mic')}<div class="hero-text"><div class="kind">Podcast</div><h1>${esc(pod.name)}</h1>
     <div class="muted">${esc(pod.author || '')} · ${eps.length} episode${eps.length === 1 ? '' : 's'}</div>
-    <div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play latest</button><button class="btn" data-act="follow-pod">${ic(following ? 'check' : 'plus')}${following ? 'Following' : 'Follow'}</button></div></div></div>`,
+    <div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play latest</button><button class="btn" data-act="follow-pod">${ic(following ? 'check' : 'plus')}${following ? 'Following' : 'Follow'}</button>${following ? `<button class="btn ${mine.auto ? 'primary' : ''}" data-act="pod-auto" aria-label="Download new episodes by themselves while Seylumi is open, and add them to Up next">${ic('save')}Auto-download: ${mine.auto ? 'On' : 'Off'}</button>` : ''}<button class="icon-btn" data-act="pod-menu" aria-label="More options">${ic('dots')}</button></div></div></div>`,
     eps.length ? trackList(viewIds) : '<div class="empty">No playable episodes were found for this show.</div>');
 }
 async function podcastsView() {
   const here = location.hash, dls = Object.values(S.dl).filter(x => x.kind === 'episode');
   viewIds = dls.map(e => e.id);
   setView('<h1>Online</h1>', onlineChips('podcasts'), searchForm('pod', S.podQ, 'Search free podcasts'), `<div class="hero-actions" style="margin:0 0 8px"><button class="btn" data-act="add-feed" aria-label="Add any podcast using its RSS feed address">${ic('plus')}Add by feed address</button></div>`, '<div id="pod-results"></div>',
+    S.upnext.filter(has).length ? `<h2>Up next</h2>` : '', S.upnext.filter(has).length ? trackList(S.upnext.filter(has)) : null,
     S.pods.length ? `<h2>Your podcasts</h2><div class="grid">${S.pods.map(podCard).join('')}</div>` : '',
     dls.length ? '<h2>Downloaded episodes</h2>' : '', dls.length ? trackList(viewIds) : null, '<div id="pod-top"></div>');
   const fill = (sel, html) => { const el = $(sel); if (el && location.hash === here) el.innerHTML = html; };
@@ -1744,6 +1748,7 @@ async function podcastsView() {
       } catch { /* offline or directory busy: try again next visit */ }
     }
     if (changed) idb.put('kv', S.pods, 'pods').catch(() => {});
+    autoDownload();
   })();
   if (S.podQ) {
     fill('#pod-results', '<p class="muted">Searching…</p>');
@@ -1758,19 +1763,52 @@ async function podcastsView() {
     catch { fill('#pod-top', head + chips + (navigator.onLine ? '<div class="empty">Couldn\'t load this chart. Try again in a moment.</div>' : offlineNote('podcast'))); }
   }
 }
-async function downloadEp(t) {
-  if (S.dl[t.id]) return toast('Already downloaded');
-  if (!navigator.onLine) return toast('Connect to the internet to download');
-  toast('Downloading…');
+async function downloadEp(t, quiet = false) {
+  if (S.dl[t.id]) { if (!quiet) toast('Already downloaded'); return true; }
+  if (!navigator.onLine) { if (!quiet) toast('Connect to the internet to download'); return false; }
+  if (!quiet) toast('Downloading…');
   try {
     const r = await fetch(t.url); if (!r.ok) throw new Error('HTTP ' + r.status);
     await idb.put('files', await r.blob(), t.id);
     S.dl[t.id] = t; await idb.put('kv', S.dl, 'dl');
-    toast('Downloaded — plays offline now');
-    if (['online', 'podcast', 'archive'].includes(page())) rerender();
+    if (!quiet) { toast('Downloaded — plays offline now'); if (['online', 'podcast', 'archive'].includes(page())) rerender(); }
+    return true;
   } catch (e) {
-    toast(e?.name === 'QuotaExceededError' ? 'Storage is full' : "This one can't be downloaded into a web app. You can still stream it.");
+    if (!quiet) toast(e?.name === 'QuotaExceededError' ? 'Storage is full' : "This one can't be downloaded into a web app. You can still stream it.");
+    return false;
   }
+}
+/* podcast extras: played episodes, an Up next list, and downloading new episodes by themselves */
+const savePlayed = () => idb.put('kv', S.played, 'played').catch(() => {});
+const saveUpnext = () => idb.put('kv', S.upnext, 'upnext').catch(() => {});
+async function setPlayed(ids, on) {
+  for (const id of ids) { if (on) { S.played[id] = Date.now(); delete S.epos[id]; } else delete S.played[id]; }
+  if (on) S.upnext = S.upnext.filter(id => !ids.includes(id));
+  savePlayed(); saveUpnext(); idb.put('kv', S.epos, 'epos').catch(() => {});
+}
+async function toggleUpnext(t) {
+  if (S.upnext.includes(t.id)) { S.upnext = S.upnext.filter(id => id !== t.id); toast('Removed from Up next'); }
+  else { S.upnext.push(t.id); await keep(t); toast('Added to Up next'); }
+  saveUpnext(); if (['online', 'podcast'].includes(page())) rerender();
+}
+let autoBusy = false;
+async function autoDownload() {
+  if (autoBusy || !navigator.onLine || navigator.connection?.saveData) return;
+  autoBusy = true; let got = 0;
+  try {
+    for (const pod of S.pods.filter(p => p.auto)) {
+      try {
+        const { eps } = await loadPodcast(pod.id, 3 * 3600e3);
+        const fresh = eps.filter(e => e.date && e.date > (pod.autoFrom || '') && !S.dl[e.id] && !S.played[e.id]).slice(0, 2);
+        for (const e of fresh.reverse()) {
+          if (await downloadEp(e, true)) { got++; if (!S.upnext.includes(e.id)) S.upnext.push(e.id); }
+        }
+        if (eps[0]?.date && eps[0].date > (pod.autoFrom || '')) pod.autoFrom = eps[0].date;
+      } catch { /* offline or the directory is busy: try again later */ }
+    }
+    idb.put('kv', S.pods, 'pods').catch(() => {}); saveUpnext();
+    if (got) { toast(`${got} new episode${got === 1 ? '' : 's'} downloaded`); if (['online', 'podcast'].includes(page())) rerender(); }
+  } finally { autoBusy = false; }
 }
 async function removeDl(t) { await idb.del('files', t.id); delete S.dl[t.id]; await idb.put('kv', S.dl, 'dl'); toast('Download removed'); if (['online', 'podcast', 'archive'].includes(page())) rerender(); }
 
@@ -2097,6 +2135,8 @@ function remoteMenu(t, ev, ctx = {}) {
     (ep || ia) && !S.dl[t.id] && { label: 'Download for offline', icon: 'save', fn: () => downloadEp(t) },
     (ep || ia) && S.dl[t.id] && { label: 'Remove download', icon: 'x', fn: () => removeDl(t) },
     ep && t.desc && { label: 'About this episode', icon: 'text', fn: () => { const d = $('#lyr'); lyrLive = null; $('.lrc', d).hidden = true; $('pre', d).hidden = false; $('h3', d).textContent = t.title; $('pre', d).textContent = t.desc.replace(/<[^>]+>/g, ''); $('.lyr-src', d).textContent = `${t.artist} · ${t.album}`; d.showModal(); $('pre', d).scrollTop = 0; } },
+    ep && { label: S.upnext.includes(t.id) ? 'Remove from Up next' : 'Add to Up next', icon: 'queue', fn: () => toggleUpnext(t) },
+    ep && { label: S.played[t.id] ? 'Mark as unplayed' : 'Mark as played', icon: 'check', fn: async () => { await setPlayed([t.id], !S.played[t.id]); toast(S.played[t.id] ? 'Marked as played' : 'Marked as unplayed'); rerender(); } },
     ep && S.epos[t.id] && { label: 'Start from the beginning', icon: 'prev', fn: () => { delete S.epos[t.id]; idb.put('kv', S.epos, 'epos'); if (S.loadedId === t.id) audio.currentTime = 0; else rerender(); } },
     ep && { label: 'Go to podcast', icon: 'mic', fn: () => nav(`#/podcast/${encodeURIComponent(t.podId)}`) },
     ia && { label: 'Go to album', icon: 'disc', fn: () => nav(`#/archive/${encodeURIComponent(t.iaId)}`) },
@@ -2457,9 +2497,9 @@ view.addEventListener('change', e => { if (e.target.closest('[data-fx=band]')) r
 function rowHTML(t, i, ctx) {
   const lead = ctx.numbered ? `<div class="row-num">${t.trackNo || i + 1}</div>` : `<div class="row-art">${artDiv(t.artId, t.album || t.title)}</div>`;
   const drag = ctx.playlistId || ctx.queueOffset;
-  return `<div class="row ${drag ? 'drag-row' : ''} ${S.sel.has(t.id) ? 'sel' : ''}" data-act="play-row" data-i="${i}" data-id="${esc(t.id)}">
+  return `<div class="row ${drag ? 'drag-row' : ''} ${S.sel.has(t.id) ? 'sel' : ''} ${t.kind === 'episode' && S.played[t.id] ? 'played' : ''}" data-act="play-row" data-i="${i}" data-id="${esc(t.id)}">
     ${drag ? `<span class="grip" aria-label="Drag to reorder">${ic('grip')}</span>` : ''}${lead}
-    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.kind === 'episode' ? [t.album, S.dl[t.id] && 'Downloaded', S.epos[t.id] && `Resume at ${fmt(S.epos[t.id])}`].filter(Boolean).join(' · ') : (t.artist || 'Unknown artist') + (t.kind === 'ia' && S.dl[t.id] ? ' · Downloaded' : ''))}</div></div>
+    <div class="row-main"><div class="row-title">${esc(t.title)}</div><div class="row-sub">${esc(t.kind === 'episode' ? [t.album, S.played[t.id] ? 'Played' : S.epos[t.id] && `Resume at ${fmt(S.epos[t.id])}`, S.dl[t.id] && 'Downloaded', S.upnext.includes(t.id) && 'Up next'].filter(Boolean).join(' · ') : (t.artist || 'Unknown artist') + (t.kind === 'ia' && S.dl[t.id] ? ' · Downloaded' : ''))}</div></div>
     <div class="row-album">${esc(t.kind === 'episode' ? t.artist : t.album || '')}</div>
     <button class="icon-btn like ${t.liked ? 'on' : ''}" data-act="like" aria-label="${t.kind === 'station' ? (t.liked ? 'Remove from favourite stations' : 'Add to favourite stations') : t.liked ? 'Remove from liked songs' : 'Add to liked songs'}">${ic('heart')}</button>
     <div class="row-dur">${t.live ? 'LIVE' : fmt(t.duration)}</div>
@@ -2983,6 +3023,20 @@ const A = {
   'open-np': openNP, 'close-np': closeNP,
   'np-menu': (el, e) => { const t = current(); if (t) trackMenu(t, e, { np: true }); },
   'sleep': (el, e) => sleepMenu(e),
+  'pod-auto': async () => {
+    const mine = S.pods.find(p => p.id === S.curPod?.id); if (!mine) return;
+    mine.auto = !mine.auto; if (mine.auto) mine.autoFrom = podMem.get(mine.id)?.eps[1]?.date || '';   // starts with the latest episode
+    await idb.put('kv', S.pods, 'pods'); rerender();
+    if (mine.auto) { toast('New episodes will download by themselves while Seylumi is open'); autoDownload(); }
+  },
+  'pod-menu': (el, e) => {
+    const pod = S.curPod, eps = podMem.get(pod?.id)?.eps || []; if (!pod) return;
+    openMenu([
+      { label: 'Mark all as played', icon: 'check', fn: async () => { await setPlayed(eps.map(x => x.id), true); toast('All marked as played'); rerender(); } },
+      { label: 'Mark all as unplayed', icon: 'x', fn: async () => { await setPlayed(eps.map(x => x.id), false); rerender(); } },
+      { label: 'Add unplayed to Up next', icon: 'queue', fn: async () => { const add = eps.filter(x => !S.played[x.id] && !S.upnext.includes(x.id)).slice(0, 20).reverse(); for (const x of add) { S.upnext.push(x.id); S.saved[x.id] = x; } await keep(add[0] || eps[0]); saveUpnext(); toast(`${add.length} added to Up next`); rerender(); } },
+    ], e, pod.name);
+  },
   'follow-pod': async () => {
     const pod = S.curPod; if (!pod) return;
     const on = S.pods.some(p => p.id === pod.id);
@@ -3197,6 +3251,7 @@ async function boot() {
   S.stations = await idb.get('kv', 'stations') || [];
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
+  S.played = await idb.get('kv', 'played') || {}; S.upnext = await idb.get('kv', 'upnext') || [];
   S.ia = await idb.get('kv', 'iaSaved') || [];
   { const hd = await idb.get('kv', 'hide'); if (hd) S.hide = { folders: Array.isArray(hd.folders) ? hd.folders : [], minSecs: +hd.minSecs || 0 }; }
   S.podGenre = await idb.get('kv', 'podGenre') || '';
@@ -3226,6 +3281,7 @@ async function boot() {
   rebuild(); renderSidePlaylists(); syncPlayer();
   lastHash = location.hash; route();
   checkFolderAccess().then(ok => { if (ok) resumePending(); });
+  if (S.pods.some(p => p.auto)) { setTimeout(autoDownload, 20000); setInterval(autoDownload, 3600e3); }
   appReady = true; syncTint(); document.documentElement.dataset.ready = '1';
   try {
     const seen = +localStorage.getItem('cadence-version') || 0;

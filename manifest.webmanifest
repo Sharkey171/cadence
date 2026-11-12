@@ -2,6 +2,7 @@
   "name": "Seylumi",
   "short_name": "Seylumi",
   "description": "Play your own music files offline, with an equalizer, playlists and lyrics. Free internet radio, podcasts and free music are built in.",
+  "id": "/cadence/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

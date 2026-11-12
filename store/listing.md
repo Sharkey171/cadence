@@ -24,7 +24,9 @@ YOUR MUSIC, OFFLINE
 • Plays MP3, M4A/AAC, FLAC, WAV, OGG and Opus files
 • Songs, albums, artists, genres and decades, built from the tags inside your files
 • Playlists, smart playlists and liked songs
-• Queue, shuffle, repeat, gapless playback and crossfade
+• Queue, smart shuffle, repeat, gapless playback and crossfade
+• Star ratings, and Daily Mixes made from your own music every day
+• Import playlists from Spotify (via Exportify) and other apps
 • Lock-screen and headphone controls
 
 SOUND
@@ -40,17 +42,20 @@ LYRICS AND COVERS
 FREE TO LISTEN
 • Internet radio from every country, by genre, or by station address
 • Podcasts: search, follow, stream, or download episodes for offline listening
+• Up next list, mark episodes as played, and new episodes downloaded by themselves
 • Free music and live concert recordings from the Internet Archive
 • Play YouTube and YouTube Music links in YouTube's own player
 
 MADE FOR EVERYDAY USE
 • Car mode with extra-large buttons
-• Listening stats: your top songs and artists
-• Light and dark themes
+• Listening stats, and Your year in music as a picture to share
+• Themes, larger text and Now Playing animations
+• Automatic backup reminders for your playlists and likes
+• In nine languages, including Irish
 • Select several songs at once, drag to reorder, find duplicates
 
 PRIVATE BY DESIGN
-Your music, playlists and listening history stay on your device. Seylumi has no account, no tracking and no adverts of its own.
+Your music, playlists and listening history stay on your device. Seylumi has no account, no tracking and no adverts of its own. Visits are counted anonymously, without cookies.
 
 Seylumi plays music files you already have. It does not download or provide copyrighted music.
 
@@ -62,7 +67,12 @@ Seylumi plays music files you already have. It does not download or provide copy
 
 ## Answers for the Play Console questionnaires
 
-- **Data safety:** the app does not collect or share any user data. Nothing is sent to the developer.
+- **Data safety:** Seylumi counts visits anonymously with GoatCounter, so answer:
+  - Does your app collect or share user data? **Yes** (collect).
+  - Data type: **App activity → App interactions** (which screen was opened). Collected, **not shared**, **processed ephemerally: No**, **required** (users can't turn it off), purpose **Analytics**.
+  - Data type: **Device or other IDs: No.** **Location: No** (the country is worked out from the internet address, which isn't stored).
+  - Is data encrypted in transit? **Yes.** Can users request deletion? **No** (nothing identifies them).
+  - Music, playlists and listening history never leave the device.
 - **Content rating:** no violence, no sexual content, no gambling. The app can play user-chosen internet radio, podcasts and YouTube videos, so answer "Yes" where asked whether users can reach content from the internet.
 - **Target audience:** 13 and over.
 - **News app:** No.

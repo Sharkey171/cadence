@@ -133,12 +133,16 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 42;
+const APP_VERSION = 43;
+// Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
+// donate button is left out there. The Play app reports itself through the referrer on its first page load.
+const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 43, date: '2026-11-12', notes: ['Ready for the Google Play version'] },
   { v: 42, date: '2026-11-12', notes: ['Automatic backups: a weekly reminder, or on a computer a backup saved into a folder of your choice every week (Settings → Back up and transfer)'] },
   { v: 41, date: '2026-11-12', notes: ['Podcasts: Up next list (⋯ → Add to Up next), shown at the top of Podcasts', 'Mark episodes as played; finished episodes are marked by themselves', 'Auto-download: new episodes of a show you follow download by themselves while Seylumi is open'] },
   { v: 40, date: '2026-11-12', notes: ['Mini player window on computers: a small always-on-top player (the button next to the queue, in Chrome or Edge)'] },
@@ -2832,9 +2836,9 @@ const VIEWS = {
       `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
-        ${LINKS.donate ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
+        ${LINKS.donate && !IN_STORE_APP ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
         <button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
-        ${LINKS.donate ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
+        ${LINKS.donate && !IN_STORE_APP ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
         <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>

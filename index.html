@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=37">
+<link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
 <div id="app">
@@ -167,6 +167,19 @@
   </form>
 </dialog>
 
+<dialog id="import-pl">
+  <form method="dialog">
+    <h3>Import a playlist</h3>
+    <p><b>From Spotify</b><br><span>Open Exportify, sign in with Spotify and press Export next to a playlist. Then choose the file it saves.</span></p>
+    <p><a class="btn" href="https://exportify.net" target="_blank" rel="noopener">Open Exportify</a></p>
+    <p><b>From another app</b><br><span>Choose an M3U, M3U8, PLS or CSV playlist file. You can pick several at once.</span></p>
+    <p><button type="button" class="btn primary" data-act="import-pl-file">Choose playlist file</button></p>
+    <p><b>Or paste a list</b><br><span>One song per line, like “Artist - Title”.</span></p>
+    <textarea rows="5" placeholder="Hozier - Take Me to Church&#10;The Pogues - Fairytale of New York"></textarea>
+    <div class="dlg-btns"><button value="cancel" class="btn" formnovalidate>Cancel</button><button value="ok" class="btn">Import list</button></div>
+  </form>
+</dialog>
+
 <dialog id="share-app">
   <form method="dialog">
     <h3>Share Seylumi</h3>
@@ -218,9 +231,10 @@
 </dialog>
 
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
+<input type="file" id="pl-input" multiple accept=".csv,.tsv,.m3u,.m3u8,.pls,.txt,text/csv,audio/x-mpegurl,audio/mpegurl,audio/x-scpls,text/plain" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=37"></script>
+<script type="module" src="app.js?v=38"></script>
 <script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {

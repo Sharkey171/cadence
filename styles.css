@@ -449,3 +449,5 @@ body.is-playing .row.playing .row-art::after { animation: eqbars .9s ease-in-out
 .np-rating.unrated { color: var(--muted); opacity: .6; }
 #share-app .qr { background: #fff; border-radius: 12px; padding: 10px; margin: 0 auto 16px; width: min(240px, 70vw); }
 #share-app .qr svg { display: block; width: 100%; height: auto; }
+#import-pl textarea { width: 100%; box-sizing: border-box; background: var(--raised); color: inherit; border: 1px solid var(--line, #333); border-radius: 10px; padding: 10px; font: inherit; font-size: 14px; resize: vertical; margin-bottom: 8px; }
+#import-pl p { margin: 0 0 10px; } #import-pl a { color: var(--accent); }

@@ -132,12 +132,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 38, date: '2026-11-13', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
   { v: 37, date: '2026-11-13', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
   { v: 36, date: '2026-11-12', notes: ['Now Playing animations: Bars, Wave, Ring or Pulse, moving with the music (⋯ on Now Playing, or Settings → Appearance)', 'Little dancing bars on the song that is playing'] },
   { v: 35, date: '2026-11-12', notes: ['Fixed stretched screenshots on the welcome page on phones'] },
@@ -186,6 +187,7 @@ const TR_PATTERNS = [
   [/^Rated ([1-5]) stars or more$/, m => P('ratedmin', { n: m[1] })],
   [/^Rated ([★☆]{5})$/, m => P('rated', { x: m[1] })],
   [/^Rating: ([★☆]{5})$/, m => P('rating', { x: m[1] })],
+  [/^(\d+) playlists? added with (\d+) of your songs$/, m => P('pladded', { a: m[1], b: m[2] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -692,6 +694,7 @@ async function resumePending() {
   }
   tagPass();
 }
+$('#pl-input').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importPlaylistFiles(fs); });
 $('#file-input').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; importItems(fs.map(file => ({ file }))); });
 $('#dir-input').addEventListener('change', e => { const fs = [...e.target.files].filter(f => AUDIO_EXT.test(f.name)); e.target.value = ''; importItems(fs.map(file => ({ file }))); });
 
@@ -2050,11 +2053,12 @@ async function sharePlaylist(name, ids) {
   catch { ask({ title: 'Copy this link', text: 'Select and copy it, then paste it into a message.', input: url, ok: 'Done' }); }
 }
 let sharedNow = null;   // the shared playlist being viewed: { name, rows: [{ item, id }] }
+const plainTitle = s => cleanTitle(s).replace(/\s+-\s+(?:[^-]*\b(?:remaster(?:ed)?|live|version|edit|mono|stereo|bonus|single|acoustic|demo|mix)\b[^-]*)$/i, '').trim();
 function matchShared(items) {
-  const exact = new Map(), byTitle = new Map();
+  const exact = new Map(), byTitle = new Map(), byFile = new Map();
   for (const t of shown()) {
-    const tk = norm(cleanTitle(t.title)); exact.set(`${tk}|${norm(t.artist)}`, t);
-    (byTitle.get(tk) || byTitle.set(tk, []).get(tk)).push(t);
+    for (const tk of new Set([norm(cleanTitle(t.title)), norm(plainTitle(t.title))])) { exact.set(`${tk}|${norm(t.artist)}`, t); (byTitle.get(tk) || byTitle.set(tk, []).get(tk)).push(t); }
+    const fn = norm((t.path || t.fileName || '').split('/').pop()); if (fn) byFile.set(fn, t);
   }
   return items.map(it => {
     if (it.u && /^https:\/\//i.test(it.u)) {   // online items play straight from their address
@@ -2062,9 +2066,91 @@ function matchShared(items) {
       const item = S.remote.get(id) || reg({ id, kind, title: String(it.t || 'Untitled').slice(0, 200), artist: String(it.a || '').slice(0, 200), album: kind === 'station' ? 'Live radio' : '', url: it.u, live: kind === 'station', artId: 'r:' + id, ...(kind === 'episode' ? { podId: String(it.p || '') } : kind === 'ia' ? { iaId: String(it.p || '') } : {}) });
       return { it, id: item.id };
     }
-    const tk = norm(cleanTitle(it.t)), t = exact.get(`${tk}|${norm(it.a)}`) || (byTitle.get(tk) || []).find(x => !it.a || !x.artist || sameArtist(x.artist, it.a));
+    const find = tk => exact.get(`${tk}|${norm(it.a)}`) || (byTitle.get(tk) || []).find(x => !it.a || !x.artist || sameArtist(x.artist, it.a));
+    const t = (it.f && byFile.get(norm(it.f))) || find(norm(cleanTitle(it.t))) || find(norm(plainTitle(it.t)));
     return { it, id: t?.id || null };
   });
+}
+
+/* ---------------- importing playlists (Spotify via Exportify, M3U, PLS, plain lists) ---------------- */
+function parseCSV(text) {
+  const rows = []; let row = [], f = '', q = false;
+  const sep = (text.split('\n')[0].match(/;/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? ';' : ',';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === sep) { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+// Returns { name, items: [{ t, a, f? }] } from the text of a playlist file or a pasted list.
+function parsePlaylistText(text, fileName = '') {
+  text = text.replace(/^﻿/, '');
+  const base = fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean), items = [];
+  const fromPath = p => { p = p.replace(/\\/g, '/').replace(/^file:\/\/\/?/i, ''); try { p = decodeURIComponent(p); } catch {} const n = namesFromPath(p); return { t: n.title, a: n.artist, f: p.split('/').pop() }; };
+  if (/\.(m3u8?)$/i.test(fileName) || /^#EXTM3U/i.test(lines[0] || '')) {
+    let inf = null, name = '';
+    for (const l of lines) {
+      if (/^#PLAYLIST:/i.test(l)) name = l.slice(10).trim();
+      else if (/^#EXTINF:/i.test(l)) { const m = /^#EXTINF:[^,]*,(.*)$/i.exec(l); inf = m ? fallbackTags(m[1].trim() + '.x') : null; }
+      else if (!l.startsWith('#')) { const p = fromPath(l); items.push(inf && inf.title ? { t: inf.title, a: inf.artist || p.a, f: p.f } : p); inf = null; }
+    }
+    return { name: name || base, items };
+  }
+  if (/\.pls$/i.test(fileName) || /^\[playlist\]/i.test(lines[0] || '')) {
+    const by = {}; for (const l of lines) { const m = /^(File|Title)(\d+)=(.*)$/i.exec(l); if (m) (by[m[2]] ||= {})[m[1].toLowerCase()] = m[3].trim(); }
+    for (const k of Object.keys(by).sort((a, b) => a - b)) { const e = by[k], p = e.file ? fromPath(e.file) : {}; if (e.title) { const n = fallbackTags(e.title + '.x'); items.push({ t: n.title, a: n.artist || p.a || '', f: p.f }); } else if (e.file) items.push(p); }
+    return { name: base, items };
+  }
+  if (/\.(csv|tsv)$/i.test(fileName) || /(track|song|title)/i.test(lines[0] || '') && /[,;\t]/.test(lines[0] || '')) {
+    const rows = /\t/.test(lines[0]) ? lines.map(l => l.split('\t')) : parseCSV(text), head = rows[0].map(h => h.trim().toLowerCase());
+    const col = (...res) => { for (const re of res) { const i = head.findIndex(h => re.test(h)); if (i >= 0) return i; } return -1; };
+    const ti = col(/^track ?name$/, /^(song|track) ?(title|name)?$/, /^title$/, /^name$/), ai = col(/^artist ?name\(?s?\)?$/, /^artists?$/, /artist/);
+    if (ti >= 0) {
+      for (const r of rows.slice(1)) { const t = (r[ti] || '').trim(); if (t) items.push({ t, a: ai >= 0 ? (r[ai] || '').trim().replace(/\s*[,;]\s*/g, ', ') : '' }); }
+      return { name: base, items };
+    }
+  }
+  // a plain list: "Artist - Title", "Title by Artist", "Artist<tab>Title", or a file path per line
+  for (const l of lines) {
+    if (l.startsWith('#') || /^https?:/i.test(l)) continue;
+    if (/[\\/]/.test(l) && /\.\w{2,4}$/.test(l)) { items.push(fromPath(l)); continue; }
+    const by = /^(.+?)\s+by\s+(.+)$/i.exec(l), tab = l.split('\t');
+    if (tab.length >= 2) items.push({ t: tab[1].trim(), a: tab[0].trim() });
+    else if (by && !/\s-\s/.test(l)) items.push({ t: by[1].trim(), a: by[2].trim() });
+    else { const n = fallbackTags(l.replace(/^\d{1,3}[.)]\s+/, '') + '.x'); items.push({ t: n.title, a: n.artist || '' }); }
+  }
+  return { name: base, items };
+}
+async function openImportedList(name, items) {
+  items = items.filter(it => it.t).slice(0, 500).map(it => ({ t: String(it.t).slice(0, 200), a: String(it.a || '').slice(0, 200), ...(it.f ? { f: String(it.f).slice(0, 200) } : {}) }));
+  if (!items.length) return ask({ title: 'No songs found', text: 'Seylumi couldn’t find any songs in that. Use a CSV file from Exportify, an M3U or PLS playlist, or a list with one song per line, like “Artist - Title”.', ok: 'OK' });
+  nav(`#/shared/${await packShare({ v: 1, n: name || 'Imported playlist', s: items, i: 1 })}`);
+}
+async function savePlaylistFrom(name, items) {
+  const rows = matchShared(items.slice(0, 500)), ids = rows.filter(r => r.id).map(r => r.id);
+  if (!ids.length) return 0;
+  let n = name || 'Imported playlist', k = 2; while (S.playlists.some(p => p.name === n)) n = `${name} (${k++})`;
+  const p = { id: uid(), name: n, trackIds: ids, createdAt: Date.now() };
+  S.playlists.push(p); await idb.put('playlists', p); return ids.length;
+}
+async function importPlaylistFiles(files) {
+  const lists = [];
+  for (const f of files) { try { lists.push(parsePlaylistText(await f.text(), f.name)); } catch (e) { console.warn('playlist file', f.name, e); } }
+  if (lists.length === 1) return openImportedList(lists[0].name, lists[0].items);
+  let made = 0, songs = 0;
+  for (const l of lists) { const n = await savePlaylistFrom(l.name, l.items); if (n) { made++; songs += n; } }
+  renderSidePlaylists(); if (page() === 'playlists') rerender();
+  toast(made ? `${made} playlist${made === 1 ? '' : 's'} added with ${songs} of your songs` : 'None of those songs are in your library yet');
+}
+function importPlaylistDialog() {
+  const d = $('#import-pl'), ta = $('textarea', d); ta.value = ''; d.returnValue = 'cancel'; d.showModal();
+  d.addEventListener('close', () => { if (d.returnValue === 'ok' && ta.value.trim()) { const r = parsePlaylistText(ta.value); openImportedList('Imported playlist', r.items); } }, { once: true });
 }
 
 /* ---------------- star ratings ---------------- */
@@ -2382,7 +2468,7 @@ const VIEWS = {
       ts.length ? trackList(viewIds) : '<div class="empty">Tap the heart on any song to save it here.</div>');
   },
   playlists() {
-    setView(`<h1>Playlists</h1><div class="hero-actions" style="margin-bottom:16px"><button class="btn primary" data-act="new-playlist">${ic('plus')}New playlist</button><button class="btn" data-act="new-smart" aria-label="A playlist that fills itself from a rule">${ic('spark')}New smart playlist</button></div>`,
+    setView(`<h1>Playlists</h1><div class="hero-actions" style="margin-bottom:16px"><button class="btn primary" data-act="new-playlist">${ic('plus')}New playlist</button><button class="btn" data-act="new-smart" aria-label="A playlist that fills itself from a rule">${ic('spark')}New smart playlist</button><button class="btn" data-act="import-pl" aria-label="Bring in a playlist from Spotify, another app or a list of songs">${ic('file')}Import playlist</button></div>`,
       `<div class="grid"><a class="card" href="#/liked"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="card-title">Liked songs</div><div class="card-sub">${likedItems().length} songs</div></a>
       ${Object.entries(MIXES).map(([k, m]) => `<a class="card" href="#/mix/${k}"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="card-title">${m.name}</div><div class="card-sub">Automatic</div></a>`).join('')}
       ${S.playlists.map(p => { const first = T(playlistIds(p)[0]); return `<a class="card" href="#/playlist/${p.id}">${artDiv(first?.artId, p.name, '', 'list')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${playlistIds(p).length} songs</div></a>`; }).join('')}</div>`);
@@ -2432,11 +2518,11 @@ const VIEWS = {
     let data = null;
     try { data = await unpackShare(code || ''); } catch {}
     if (!data || !Array.isArray(data.s)) return setView('<div class="empty"><h1>This link doesn’t work</h1><p>It may have been cut short when it was copied. Ask for it to be sent again.</p></div>');
-    const name = String(data.n || 'Shared playlist').slice(0, 80), rows = matchShared(data.s.slice(0, 500));
+    const name = String(data.n || (data.i ? 'Imported playlist' : 'Shared playlist')).slice(0, 80), rows = matchShared(data.s.slice(0, 500));
     const have = rows.filter(r => r.id), missing = rows.filter(r => !r.id);
     sharedNow = { name, rows }; viewIds = have.map(r => r.id);
     const yt = it => `https://music.youtube.com/search?q=${encodeURIComponent(`${it.t} ${it.a || ''}`.trim())}`;
-    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('share')}</div><div class="hero-text"><div class="kind">Shared playlist</div><h1>${esc(name)}</h1>
+    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('share')}</div><div class="hero-text"><div class="kind">${data.i ? 'Imported playlist' : 'Shared playlist'}</div><h1>${esc(name)}</h1>
       <div class="muted">${rows.length} song${rows.length === 1 ? '' : 's'} · ${have.length} in your library${missing.length ? ` · ${missing.length} not` : ''}</div>
       ${have.length ? heroActions(`<button class="btn" data-act="save-shared">${ic('plus')}Save as playlist</button>`) : ''}</div></div>`,
       have.length ? `<h2>${missing.length ? 'In your library' : 'Songs'}</h2>` : '', have.length ? trackList(viewIds) : '',
@@ -2755,6 +2841,8 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'import-pl': importPlaylistDialog,
+  'import-pl-file': () => { $('#import-pl').close(); $('#pl-input').click(); },
   'share-app-link': async () => {
     try { if (navigator.share && !isDesktop()) return await navigator.share({ title: 'Seylumi', text: 'Seylumi plays your own music offline, with free radio and podcasts. No account, no adverts:', url: APP_LINK }); } catch (e) { if (e?.name === 'AbortError') return; }
     try { await navigator.clipboard.writeText(APP_LINK); toast('Link copied'); } catch { toast(APP_LINK); }
@@ -2767,7 +2855,7 @@ const A = {
     const sh = sharedNow; if (!sh) return;
     const ids = sh.rows.filter(r => r.id).map(r => r.id);
     for (const id of ids) if (S.remote.has(id)) await keep(S.remote.get(id));
-    let name = sh.name; if (S.playlists.some(p => p.name === name)) name += ' (shared)';
+    let name = sh.name, k = 2; while (S.playlists.some(p => p.name === name)) name = `${sh.name} (${k++})`;
     const p = { id: uid(), name, trackIds: ids, createdAt: Date.now() };
     S.playlists.push(p); await idb.put('playlists', p); renderSidePlaylists();
     toast(`Saved “${name}” with ${ids.length} song${ids.length === 1 ? '' : 's'}`); location.hash = `#/playlist/${p.id}`;

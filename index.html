@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=35">
+<link rel="stylesheet" href="styles.css?v=36">
 </head>
 <body>
 <div id="app">
@@ -97,6 +97,7 @@
 
 <section id="np" hidden>
   <div id="np-bg"></div>
+  <canvas id="np-viz" aria-hidden="true"></canvas>
   <header>
     <button class="icon-btn" data-act="close-np" data-ic="down" aria-label="Close now playing"></button>
     <span>Now playing</span>
@@ -210,7 +211,7 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=35"></script>
+<script type="module" src="app.js?v=36"></script>
 <script>
 (function () {
   var shown = false;

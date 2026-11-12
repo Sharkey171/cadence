@@ -104,7 +104,7 @@ const S = {
   remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
   hide: { folders: [], minSecs: 0 }, shownList: [],
   radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
-  fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
+  fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false, viz: 'bars' },
 };
 // A queue entry is either a library track or a remote item (podcast episode / radio station).
 const T = id => S.tracks.get(id) || S.remote.get(id);
@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 36, date: '2026-11-12', notes: ['Now Playing animations: Bars, Wave, Ring or Pulse, moving with the music (⋯ on Now Playing, or Settings → Appearance)', 'Little dancing bars on the song that is playing'] },
   { v: 35, date: '2026-11-12', notes: ['Fixed stretched screenshots on the welcome page on phones'] },
   { v: 34, date: '2026-11-12', notes: ['A welcome page that explains Seylumi and how to install it, and picture previews when you share a link'] },
   { v: 33, date: '2026-11-12', notes: ['Fixed: the Privacy button opened a blank app instead of the privacy policy'] },
@@ -160,6 +161,7 @@ const TR_PATTERNS = [
   [/^Adding music… (\d+) done · (\d+) found so far$/, m => P('addingfound', { a: m[1], b: m[2] })],
   [/^Reading song details… (\d+) \/ (\d+)$/, m => P('reading', { a: m[1], b: m[2] })],
   [/^(.+): (On|Off)$/, m => I18N.d[m[1]] ? `${I18N.d[m[1]]}: ${I18N.d[m[2]]}` : null],
+  [/^Animation: (Off|Bars|Wave|Ring|Pulse)$/, m => `${I18N.d['Now Playing animation'] || 'Animation'}: ${I18N.d[m[1]]}`],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1048,6 +1050,7 @@ vol.addEventListener('input', () => { S.volume = +vol.value; ELS.forEach(applyVo
 function syncPlayer() {
   const t = current(), on = playing();
   $('#player').classList.toggle('idle', !t);
+  document.body.classList.toggle('is-playing', on);
   document.body.classList.toggle('pod', t?.kind === 'episode');
   $('#p-title').textContent = t ? t.title : 'Nothing playing';
   $('#p-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
@@ -1160,6 +1163,7 @@ function trackMenu(t, ev, ctx = {}) {
     t.album && { label: 'Go to album', icon: 'disc', fn: () => nav(`#/album/${encodeURIComponent(t.albumKey)}`) },
     { label: 'Go to artist', icon: 'user', fn: () => nav(`#/artist/${encodeURIComponent(norm(t.albumArtist || t.artist || 'Unknown artist'))}`) },
     ctx.np && { label: sleepLabel(), icon: 'moon', fn: () => sleepMenu() },
+    ctx.np && { label: `Animation: ${(VIZ.find(v => v[0] === S.fx.viz) || VIZ[0])[1]}`, icon: 'spark', fn: () => openMenu(VIZ.map(([k, l]) => ({ label: l + (S.fx.viz === k ? '  ✓' : ''), icon: k === 'off' ? 'x' : 'spark', fn: () => setViz(k) })), null, 'Now Playing animation') },
     ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => nav('#/settings') },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
     !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
@@ -2448,6 +2452,7 @@ const VIEWS = {
       `<div class="settings-block"><h2>Appearance</h2>
         <div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-card ${S.theme.mode === k ? 'on' : ''}" data-act="theme-mode" data-mode="${k}" aria-label="${t.name} theme"><span class="theme-prev" style="background:${t.bg}"><i style="background:${t.panel}"></i><i style="background:${t.raised}"></i><b style="background:${t.accent}"></b></span><span>${t.name}</span></button>`).join('')}</div>
         <h2 style="margin-top:20px">Accent colour</h2>
+        <h2 style="margin-top:20px">Now Playing animation</h2><div class="chips">${VIZ.map(([k, l]) => `<button class="chip ${S.fx.viz === k ? 'active' : ''}" data-act="set-viz" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
       `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
@@ -2506,8 +2511,104 @@ async function carMode(on) {
   try { if (on) carLock = await navigator.wakeLock?.request('screen'); else { await carLock?.release(); carLock = null; } } catch { carLock = null; }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#car').hidden) carMode(true); });
-function openNP() { if (current() && $('#np').hidden) { $('#np').hidden = false; overlayOpened(); } }
+function openNP() { if (current() && $('#np').hidden) { $('#np').hidden = false; overlayOpened(); vizStart(); } }
 function closeNP() { if ($('#np').hidden) return; $('#np').hidden = true; overlayClosed(); }
+
+/* ---------------- Now Playing animation ---------------- */
+// Driven by the music itself for your own files and downloads. Internet streams can't be measured
+// (their servers don't allow it), so for those a gentle animation keeps time instead.
+const VIZ = [['off', 'Off'], ['bars', 'Bars'], ['wave', 'Wave'], ['ring', 'Ring'], ['pulse', 'Pulse']];
+let vizRaf = 0, vizFreq = null, vizWave = null, vizSmooth = null, vizBass = 0, vizAvg = 0;
+function vizStart() {
+  if (vizRaf || !S.fx.viz || S.fx.viz === 'off') return;
+  vizAvg = 0;
+  ensureGraph();
+  vizRaf = requestAnimationFrame(vizFrame);
+}
+function vizStop() {
+  cancelAnimationFrame(vizRaf); vizRaf = 0;
+  const c = $('#np-viz'); c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  const art = $('#np-art'); art.style.transform = ''; art.style.boxShadow = ''; art.style.clipPath = '';
+}
+function vizLevels(n) {
+  // returns n smoothed levels 0..1 (low to high pitch) and a time-domain wave
+  const real = ac && analyser && audio !== elC && !audio.paused && S.loadedId;
+  if (!vizSmooth || vizSmooth.length !== n) vizSmooth = new Float32Array(n);
+  let wave = null;
+  if (real) {
+    if (!vizFreq || vizFreq.length !== analyser.frequencyBinCount) { vizFreq = new Uint8Array(analyser.frequencyBinCount); vizWave = new Uint8Array(analyser.fftSize); }
+    analyser.getByteFrequencyData(vizFreq); analyser.getByteTimeDomainData(vizWave); wave = vizWave;
+    const top = Math.floor(vizFreq.length * 0.7);
+    for (let i = 0; i < n; i++) {   // spread bars on a log scale so bass and treble both show
+      const a = Math.floor(Math.pow(i / n, 1.7) * top), b = Math.max(a + 1, Math.floor(Math.pow((i + 1) / n, 1.7) * top));
+      let m = 0; for (let k = a; k < b; k++) m = Math.max(m, vizFreq[k]);
+      const v = m / 255; vizSmooth[i] += (v - vizSmooth[i]) * (v > vizSmooth[i] ? 0.55 : 0.12);
+    }
+  } else {
+    const t = performance.now() / 1000, on = !audio.paused && !!S.loadedId;
+    for (let i = 0; i < n; i++) { const v = on ? 0.18 + 0.16 * Math.sin(t * 2.1 + i * 0.45) * Math.sin(t * 0.9 + i * 0.13) + 0.1 * Math.sin(t * 3.3 + i) : 0.02; vizSmooth[i] += (Math.max(0, v) - vizSmooth[i]) * 0.1; }
+  }
+  let bass = 0; for (let i = 0; i < Math.max(2, n >> 3); i++) bass += vizSmooth[i]; bass /= Math.max(2, n >> 3);
+  vizBass += (bass - vizBass) * 0.3; vizAvg = vizAvg ? vizAvg + (bass - vizAvg) * 0.02 : bass;
+  return { lv: vizSmooth, wave };
+}
+function vizFrame() {
+  vizRaf = 0;
+  if ($('#np').hidden || !S.fx.viz || S.fx.viz === 'off') return vizStop();
+  const c = $('#np-viz'), dpr = Math.min(2, devicePixelRatio || 1), W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff7a59';
+  // the cover's untilted layout box (a turning or beating cover would measure larger)
+  const art = $('#np-art'), cx = art.offsetLeft + art.offsetWidth / 2, cy = art.offsetTop + art.offsetHeight / 2, side = Math.min(art.offsetWidth, art.offsetHeight);
+  const mode = S.fx.viz;
+  art.style.transform = ''; art.style.boxShadow = ''; art.style.clipPath = '';
+  if (mode === 'bars') {
+    const n = W < 500 ? 40 : 64, { lv } = vizLevels(n), gap = 3, bw = (W - gap * (n - 1)) / n, base = H * 0.98;
+    const grad = g.createLinearGradient(0, base - H * 0.5, 0, base); grad.addColorStop(0, accent); grad.addColorStop(1, accent + '22');
+    g.fillStyle = grad; g.globalAlpha = 0.55;
+    for (let i = 0; i < n; i++) { const h = Math.max(3, lv[i] * H * 0.5); g.beginPath(); g.roundRect?.(i * (bw + gap), base - h, bw, h, Math.min(4, bw / 2)) ?? g.rect(i * (bw + gap), base - h, bw, h); g.fill(); }
+  } else if (mode === 'wave') {
+    const { lv, wave } = vizLevels(48);
+    g.globalAlpha = 0.85; g.lineWidth = 3; g.strokeStyle = accent; g.shadowColor = accent; g.shadowBlur = 18; g.beginPath();
+    const pts = 120;
+    for (let i = 0; i <= pts; i++) {
+      const x = i / pts * W;
+      let y;
+      if (wave) { const k = Math.floor(i / pts * (wave.length - 1)); y = (wave[k] - 128) / 128; }
+      else { const t = performance.now() / 1000; y = Math.sin(i / pts * Math.PI * 4 + t * 2.4) * lv[i % lv.length] * 1.6; }
+      const edge = Math.sin(i / pts * Math.PI);   // calm at the edges
+      const yy = cy + y * side * 0.42 * edge;
+      i ? g.lineTo(x, yy) : g.moveTo(x, yy);
+    }
+    g.stroke(); g.shadowBlur = 0;
+  } else if (mode === 'ring') {
+    // the cover becomes a slowly turning round record in the middle (cropped to a circle whatever its shape)
+    const rad = side * 0.38;
+    art.style.clipPath = `circle(${rad}px at 50% 50%)`; art.style.transform = `rotate(${(performance.now() / 120) % 360}deg)`;
+    const n = 72, { lv } = vizLevels(n / 2), R = rad + 8;
+    g.globalAlpha = 0.9; g.strokeStyle = accent; g.lineCap = 'round'; g.lineWidth = Math.max(2, side / 110); g.shadowColor = accent; g.shadowBlur = 10;
+    for (let i = 0; i < n; i++) {
+      const v = lv[i < n / 2 ? i : n - 1 - i], a = (i / n) * Math.PI * 2 - Math.PI / 2, len = 4 + v * side * 0.2;
+      g.beginPath(); g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.lineTo(cx + Math.cos(a) * (R + len), cy + Math.sin(a) * (R + len)); g.stroke();
+    }
+    g.shadowBlur = 0;
+  } else if (mode === 'pulse') {
+    vizLevels(16);
+    // beat on changes in the bass, so it keeps moving on loud and quiet music alike
+    const k = Math.min(1, Math.max(0, (vizBass - vizAvg * 0.85) * 2 + vizBass * 0.3));
+    art.style.transform = `scale(${1 + k * 0.045})`;
+    art.style.boxShadow = `0 20px 60px #000a, 0 0 ${20 + k * 70}px ${k * 10}px ${accent}${Math.round(40 + k * 120).toString(16).padStart(2, '0')}`;
+  }
+  g.globalAlpha = 1;
+  vizRaf = requestAnimationFrame(vizFrame);
+}
+function setViz(mode) {
+  S.fx.viz = mode; saveFx();
+  vizStop(); if (!$('#np').hidden) vizStart();
+  if (page() === 'settings') rerender();
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) vizStop(); else if (!$('#np').hidden) vizStart(); });
 
 /* ---------------- phone Back button ---------------- */
 // While a full-screen layer (Now Playing, car mode, a menu, the selection bar) is open, one extra
@@ -2595,6 +2696,7 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
+  'set-viz': el => setViz(el.dataset.v),
   'share-view': el => sharePlaylist(el.dataset.name || 'Playlist', viewIds),
   'save-shared': async () => {
     const sh = sharedNow; if (!sh) return;

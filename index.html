@@ -3,22 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cadence</title>
+<title>Seylumi</title>
 <meta name="theme-color" content="#0e0e12">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Cadence">
-<meta name="description" content="Cadence plays your own music files offline, with free radio, podcasts and free music built in.">
+<meta name="apple-mobile-web-app-title" content="Seylumi">
+<meta name="description" content="Seylumi plays your own music files offline, with free radio, podcasts and free music built in.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=32">
 </head>
 <body>
 <div id="app">
   <aside id="sidebar">
-    <div class="brand"><img src="icons/icon-192.png" alt=""><span>Cadence</span></div>
+    <div class="brand"><img src="icons/icon-192.png" alt=""><span>Seylumi</span></div>
     <nav class="nav">
       <a href="#/home" data-nav="home" aria-label="Home: recent and most played" data-ic="home">Home</a>
       <a href="#/search" data-nav="search" aria-label="Search your library" data-ic="search">Search</a>
@@ -130,7 +130,7 @@
   </div>
 </section>
 
-<div id="update" hidden><span>A new version of Cadence is ready.</span><button class="btn primary" data-act="restart-update">Restart</button></div>
+<div id="update" hidden><span>A new version of Seylumi is ready.</span><button class="btn primary" data-act="restart-update">Restart</button></div>
 
 <div id="selbar" hidden>
   <b id="sel-count"></b>
@@ -202,14 +202,14 @@
 <input type="file" id="file-input" multiple accept="audio/*,.mp3,.m4a,.m4b,.aac,.flac,.wav,.ogg,.oga,.opus,.weba" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=31"></script>
+<script type="module" src="app.js?v=32"></script>
 <script>
 (function () {
   var shown = false;
   function rescue(why) {
     if (shown || document.documentElement.dataset.ready) return; shown = true;
     var box = document.createElement('div'); box.id = 'rescue';
-    box.innerHTML = '<h2>Cadence didn\u2019t start properly</h2><p>' + (why ? 'Something went wrong while it was opening. ' : 'It is taking much longer than usual to open. ') +
+    box.innerHTML = '<h2>Seylumi didn\u2019t start properly</h2><p>' + (why ? 'Something went wrong while it was opening. ' : 'It is taking much longer than usual to open. ') +
       'Your music, playlists and likes are safe. Resetting the look (theme and colours) usually fixes this.</p>' +
       '<button id="rescue-reset">Reset the look and reopen</button><button id="rescue-reload">Just reopen</button>' +
       (why ? '<p class="why">' + String(why).replace(/[<&]/g, '') + '</p>' : '');

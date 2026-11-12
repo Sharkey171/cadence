@@ -1,4 +1,4 @@
-// Cadence — offline player for your own music files.
+// Seylumi (formerly Cadence) — offline player for your own music files.
 // Everything (library, playlists, audio) is stored on this device; nothing is uploaded.
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 32, date: '2026-11-12', notes: ['Cadence is now called Seylumi. Your music, playlists and settings are all still here.'] },
   { v: 31, date: '2026-11-12', notes: ['Send feedback and Support the app are now switched on in Settings'] },
   { v: 30, date: '2026-11-12', notes: ['Cadence in nine languages: English, Irish, Spanish, French, German, Polish, Portuguese, Italian and Dutch (Settings → Language)'] },
   { v: 29, date: '2026-11-12', notes: ['Share playlists as a link: the songs your friend has play from their own library, the rest open on YouTube Music'] },
@@ -1059,7 +1060,7 @@ function syncPlayer() {
   $$('.b-shuffle').forEach(b => { b.classList.toggle('on', S.shuffle); b.setAttribute('aria-label', S.shuffle ? 'Shuffle is on' : 'Shuffle is off'); });
   $$('.b-repeat').forEach(b => { b.classList.toggle('on', S.repeat !== 'off'); b.innerHTML = ic(S.repeat === 'one' ? 'repeat1' : 'repeat'); b.setAttribute('aria-label', { off: 'Repeat is off', all: 'Repeating the whole queue', one: 'Repeating this song' }[S.repeat]); });
   $$('.cur-like').forEach(b => { b.classList.toggle('on', !!t?.liked); b.setAttribute('aria-label', t?.liked ? 'Remove from liked songs' : 'Add to liked songs'); });
-  document.title = t && on ? `${t.title} · ${t.artist || 'Cadence'}` : 'Cadence';
+  document.title = t && on ? `${t.title} · ${t.artist || 'Seylumi'}` : 'Seylumi';
   markPlaying(); syncTime();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = t ? new MediaMetadata({
@@ -1172,7 +1173,7 @@ function trackMenu(t, ev, ctx = {}) {
     pl && { label: 'Remove from this playlist', icon: 'x', fn: async () => { pl.trackIds = pl.trackIds.filter(i => i !== t.id); await idb.put('playlists', pl); rerender(); } },
     ctx.queueOffset && ctx.i != null && { label: 'Remove from queue', icon: 'x', fn: () => { S.queue.splice(ctx.queueOffset + ctx.i, 1); saveState(); rerender(); } },
     { label: 'Delete from library', icon: 'trash', danger: true, fn: async () => {
-      if (await ask({ title: 'Delete from library?', text: t.linked ? `“${t.title}” will be removed from Cadence. The file in your folder is not touched.` : `“${t.title}” will be removed from this device's Cadence library.`, ok: 'Delete', danger: true })) deleteTracks([t.id]);
+      if (await ask({ title: 'Delete from library?', text: t.linked ? `“${t.title}” will be removed from Seylumi. The file in your folder is not touched.` : `“${t.title}” will be removed from this device's Seylumi library.`, ok: 'Delete', danger: true })) deleteTracks([t.id]);
     } },
   ], ev, `${t.title} · ${t.artist || 'Unknown artist'}`);
 }
@@ -1411,7 +1412,7 @@ function exportBackup() {
   };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
-  a.download = `cadence-backup-${data.exportedAt.slice(0, 10)}.json`;
+  a.download = `seylumi-backup-${data.exportedAt.slice(0, 10)}.json`;
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   toast('Backup file saved to your downloads');
@@ -1419,7 +1420,7 @@ function exportBackup() {
 async function importBackup(file) {
   let d = null;
   try { d = JSON.parse(await file.text()); } catch {}
-  if (!d || d.app !== 'cadence' || !Array.isArray(d.playlists)) return toast("That isn't a Cadence backup file");
+  if (!d || !['cadence', 'seylumi'].includes(d.app) || !Array.isArray(d.playlists)) return toast("That isn't a Seylumi backup file");
   const bySig = new Map([...S.tracks.values()].map(t => [sigOf(t), t]));
   const missing = new Set(); let pls = 0, likes = 0;
   for (const bp of d.playlists) {
@@ -1912,7 +1913,7 @@ const YT_HELP = `Pasting YouTube links needs no setup. These two optional items 
 
 1. SEARCH BY NAME — a YouTube API key
  • Go to console.cloud.google.com and sign in with your Google account.
- • Create a project (any name, for example "Cadence").
+ • Create a project (any name, for example "Seylumi").
  • Open "APIs & Services" → "Library", find "YouTube Data API v3" and press Enable.
  • Open "APIs & Services" → "Credentials" → "Create credentials" → "API key".
  • Copy the key into the first box here and press Save.
@@ -1987,7 +1988,7 @@ const saveBtn = `<button class="icon-btn" data-act="export-view" aria-label="Dow
 
 /* ---------------- sharing playlists as links ---------------- */
 // The link carries only song names and artists (plus the public address of any radio station,
-// podcast episode or free-music track). The other person's Cadence matches them to their own music.
+// podcast episode or free-music track). The other person's Seylumi matches them to their own music.
 const b64url = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64url = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
@@ -2006,7 +2007,7 @@ async function sharePlaylist(name, ids) {
     : { t: t.title, a: t.artist || '' });
   if (!items.length) return toast('This playlist is empty');
   const url = `${location.origin}${location.pathname}#/shared/${await packShare({ v: 1, n: name, s: items })}`;
-  const text = `${name} — ${items.length} song${items.length === 1 ? '' : 's'}. Open it in Cadence, the free offline music player:`;
+  const text = `${name} — ${items.length} song${items.length === 1 ? '' : 's'}. Open it in Seylumi, the free offline music player:`;
   try { if (navigator.share && !isDesktop()) return await navigator.share({ title: name, text, url }); } catch (e) { if (e?.name === 'AbortError') return; }
   try { await navigator.clipboard.writeText(url); toast('Link copied — paste it into a message to share the playlist'); }
   catch { ask({ title: 'Copy this link', text: 'Select and copy it, then paste it into a message.', input: url, ok: 'Done' }); }
@@ -2374,7 +2375,7 @@ const VIEWS = {
       <div class="muted">${rows.length} song${rows.length === 1 ? '' : 's'} · ${have.length} in your library${missing.length ? ` · ${missing.length} not` : ''}</div>
       ${have.length ? heroActions(`<button class="btn" data-act="save-shared">${ic('plus')}Save as playlist</button>`) : ''}</div></div>`,
       have.length ? `<h2>${missing.length ? 'In your library' : 'Songs'}</h2>` : '', have.length ? trackList(viewIds) : '',
-      missing.length ? `<h2>Not in your library</h2><p class="muted" style="margin:-6px 0 8px">${S.tracks.size ? 'Add these to your music to play them here, or listen on YouTube Music.' : 'Add your own music to Cadence and the songs you have will play here. Meanwhile you can listen on YouTube Music.'}</p>
+      missing.length ? `<h2>Not in your library</h2><p class="muted" style="margin:-6px 0 8px">${S.tracks.size ? 'Add these to your music to play them here, or listen on YouTube Music.' : 'Add your own music to Seylumi and the songs you have will play here. Meanwhile you can listen on YouTube Music.'}</p>
         <div class="missing">${missing.map(r => `<div class="miss-row"><div class="row-main"><div class="row-title">${esc(r.it.t)}</div><div class="row-sub">${esc(r.it.a || 'Unknown artist')}</div></div><a class="btn" href="${esc(yt(r.it))}" target="_blank" rel="noopener" aria-label="Find this song on YouTube Music">${ic('yt')}Listen</a></div>`).join('')}</div>` : '');
   },
   mix(kind) {
@@ -2427,7 +2428,7 @@ const VIEWS = {
     if (page() !== 'settings') return;
     const copied = [...S.tracks.values()].filter(t => !t.linked).length;
     setView('<h1>Settings</h1>',
-      `<div class="settings-block"><h2>Language</h2><p>Choose the language for Cadence. Song names and podcast titles stay as they are.</p>
+      `<div class="settings-block"><h2>Language</h2><p>Choose the language for Seylumi. Song names and podcast titles stay as they are.</p>
         <select data-set="lang" aria-label="Language"><option value="auto">Automatic (your device’s language)</option>${Object.entries(LANGS).map(([k, n]) => `<option value="${k}" translate="no" ${(() => { try { return localStorage.getItem('cadence-lang') === k; } catch { return false; } })() ? 'selected' : ''}>${n}</option>`).join('')}</select>
         ${LANG === 'ga' ? '<p style="margin-top:10px;font-size:13px">Is aistriúchán neamhoifigiúil é seo. Fáilte roimh cheartúcháin.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>Add music</h2><p>Files you add are copied into the app so they always play offline. On a computer you can instead link a folder, which plays the files where they are without using extra space.</p>
@@ -2445,12 +2446,12 @@ const VIEWS = {
         <h2 style="margin-top:20px">Accent colour</h2>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
-      `<div class="settings-block"><h2>About Cadence</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
+      `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
         <a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
-        ${LINKS.donate ? '<p style="margin-top:12px">Cadence is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
+        ${LINKS.donate ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
         <label class="setfield">YouTube API key<input id="yt-key" type="text" value="${esc(S.yt.key)}" autocomplete="off" spellcheck="false" placeholder="Not set"></label>
@@ -2458,11 +2459,11 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn primary" data-act="yt-keys">Save</button><button class="btn" data-act="yt-help">How to get these</button></div>
         <h2 style="margin-top:22px">YouTube Premium</h2><p>If you pay for YouTube Premium, switch this on and sign in to youtube.com in this same browser. Videos played here should then have no adverts. With it on, YouTube can link what you play here to your account, as it does on its own site.</p>
         <div class="hero-actions"><button class="btn ${S.yt.signedIn ? 'primary' : ''}" data-act="yt-signin" aria-label="Let the YouTube player use the YouTube account you are signed in to in this browser">Use my YouTube sign-in: ${S.yt.signedIn ? 'On' : 'Off'}</button><a class="btn" href="https://www.youtube.com/" target="_blank" rel="noopener">Open youtube.com to sign in</a></div></div>`,
-      `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Cadence can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
+      `<div class="settings-block"><h2>Covers and lyrics</h2><p>When a song has no cover or lyrics saved in its file, Seylumi can look them up online and keep them on this device for offline use. Only the song's title, artist and album are sent, to Apple's music catalogue (covers) and LRCLIB (lyrics).</p>
         <div class="hero-actions"><button class="btn ${S.online !== false ? 'primary' : ''}" data-act="toggle-online">Online lookups: ${S.online !== false ? 'On' : 'Off'}</button><button class="btn" data-act="find-covers">${ic('disc')}Find all missing covers</button></div></div>`,
       `<div class="settings-block"><h2>Back up and transfer</h2><p>Save your playlists and liked songs to a file. Restore it on another device that has the same music files to get the same playlists there.</p>
         <div class="hero-actions"><button class="btn" data-act="export">${ic('save')}Save backup file</button><button class="btn" data-act="import-backup">${ic('up')}Restore from file</button></div></div>`,
-      installEvt ? `<div class="settings-block"><h2>Install</h2><p>Install Cadence as an app with its own window and icon.</p><button class="btn primary" data-act="install">Install app</button></div>` : '',
+      installEvt ? `<div class="settings-block"><h2>Install</h2><p>Install Seylumi as an app with its own window and icon.</p><button class="btn primary" data-act="install">Install app</button></div>` : '',
     );
   },
 };
@@ -2697,12 +2698,12 @@ const A = {
   },
   'unlink': async el => {
     const f = S.folders.find(x => x.id === el.dataset.id); if (!f) return;
-    if (!await ask({ title: 'Remove linked folder?', text: `Songs from “${f.name}” will leave your Cadence library. The files themselves are not touched.`, ok: 'Remove', danger: true })) return;
+    if (!await ask({ title: 'Remove linked folder?', text: `Songs from “${f.name}” will leave your Seylumi library. The files themselves are not touched.`, ok: 'Remove', danger: true })) return;
     S.folders = S.folders.filter(x => x !== f); await idb.put('kv', S.folders, 'folders');
     await deleteTracks([...S.tracks.values()].filter(t => t.folderId === f.id).map(t => t.id));
   },
   'wipe': async () => {
-    if (!await ask({ title: 'Delete entire library?', text: 'All songs, playlists and likes will be removed from Cadence on this device. Files in linked folders are not touched.', ok: 'Delete everything', danger: true })) return;
+    if (!await ask({ title: 'Delete entire library?', text: 'All songs, playlists and likes will be removed from Seylumi on this device. Files in linked folders are not touched.', ok: 'Delete everything', danger: true })) return;
     audio.pause(); audio.removeAttribute('src');
     for (const s of ['tracks', 'files', 'art', 'playlists', 'kv']) await idb.clear(s);
     location.hash = '#/home'; location.reload();

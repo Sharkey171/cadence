@@ -1,6 +1,6 @@
-# Cadence
+# Seylumi
 
-Offline music player for your own files. Installable web app (PWA) for Windows, Android and iPhone.
+Offline music player for your own files (formerly called Cadence; the web address and internal storage names still use "cadence" so existing installs and libraries keep working). Installable web app (PWA) for Windows, Android and iPhone.
 
 - Static site, no build step and no server code: host this folder on any HTTPS host
   (GitHub Pages, Netlify, Cloudflare Pages), open the URL, then install it from the browser.

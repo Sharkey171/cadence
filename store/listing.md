@@ -1,11 +1,11 @@
-# Google Play listing for Cadence
+# Google Play listing for Seylumi
 
 Everything Google Play Console asks for when you create the listing. Copy and paste.
 
 ## App details
 
-- **App name:** Cadence: Offline Music Player
-- **Package name (app ID):** `io.github.sharkey171.cadence`
+- **App name:** Seylumi: Offline Music Player
+- **Package name (app ID):** `io.github.sharkey171.seylumi`
 - **Category:** Music & Audio
 - **Free or paid:** Free
 - **Contains ads:** No (videos played from YouTube show YouTube's own adverts)
@@ -18,7 +18,7 @@ Play your own music offline, plus free radio, podcasts and free music.
 
 ## Full description
 
-Cadence is a music player for the songs you already own. Add the music files stored on your phone and play them anywhere, with no internet connection, no account and no subscription.
+Seylumi is a music player for the songs you already own. Add the music files stored on your phone and play them anywhere, with no internet connection, no account and no subscription.
 
 YOUR MUSIC, OFFLINE
 • Plays MP3, M4A/AAC, FLAC, WAV, OGG and Opus files
@@ -50,9 +50,9 @@ MADE FOR EVERYDAY USE
 • Select several songs at once, drag to reorder, find duplicates
 
 PRIVATE BY DESIGN
-Your music, playlists and listening history stay on your device. Cadence has no account, no tracking and no adverts of its own.
+Your music, playlists and listening history stay on your device. Seylumi has no account, no tracking and no adverts of its own.
 
-Cadence plays music files you already have. It does not download or provide copyrighted music.
+Seylumi plays music files you already have. It does not download or provide copyrighted music.
 
 ## Graphics (all in this folder)
 

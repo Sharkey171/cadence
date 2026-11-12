@@ -100,7 +100,7 @@ const S = {
   artUrls: new Map(), folders: [],
   queue: [], qIndex: -1, baseQueue: null, shuffle: false, repeat: 'off',
   loadedId: null, resumeAt: 0, sort: 'title', q: '',
-  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
+  remote: new Map(), pods: [], stations: [], dl: {}, epos: {}, podQ: '', podGenre: '', radQ: '', ia: [], iaQ: '', iaSet: 'live',
   radCC: null, radTag: '', yt: { key: '', clientId: '' }, ytSaved: [], ytQ: '', ytList: [], ytIdx: -1, volume: 1, hist: [], saved: {}, sel: new Set(), theme: { mode: 'dark', accent: '#ff7a59' }, statP: 30,
   fx: { eq: false, preset: 'Flat', bands: [0, 0, 0, 0, 0], xfade: 0, gapless: matchMedia('(hover: hover)').matches, level: false, rate: 1, skipSilence: false },
 };
@@ -1292,12 +1292,29 @@ const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcast
 // --- podcasts (Apple's public podcast directory; shows are streamed from their own hosts) ---
 const podFrom = r => ({ id: String(r.collectionId), name: r.collectionName, author: r.artistName, art: r.artworkUrl600 || r.artworkUrl100 });
 const podCard = p => `<a class="card" data-pod="${esc(p.id)}" href="#/podcast/${encodeURIComponent(p.id)}">${safeUrl(p.art) ? `<div class="art" style="background-image:url('${safeUrl(p.art)}')"></div>` : artDiv(null, p.name, '', 'mic')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${esc(p.author || '')}</div></a>`;
-let topPods = null; const podMem = new Map(), podSearchMem = new Map();
-async function loadTopPods() {
-  if (topPods) return topPods;
-  const d = await fetchJSON(`https://itunes.apple.com/${CC.toLowerCase()}/rss/toppodcasts/limit=24/json`);
-  return topPods = (d.feed?.entry || []).map(e => ({ id: e.id?.attributes?.['im:id'], name: e['im:name']?.label, author: e['im:artist']?.label, art: e['im:image']?.at(-1)?.label })).filter(p => p.id && p.name);
+const podMem = new Map(), podSearchMem = new Map();
+// Apple's podcast categories, each with its own top-50 chart per country.
+const POD_GENRES = [['', 'All'], ['1303', 'Comedy'], ['1489', 'News'], ['1488', 'True Crime'], ['1545', 'Sports'], ['1324', 'Society & Culture'],
+  ['1487', 'History'], ['1321', 'Business'], ['1512', 'Health & Fitness'], ['1309', 'TV & Film'], ['1310', 'Music'], ['1533', 'Science'],
+  ['1318', 'Technology'], ['1304', 'Education'], ['1301', 'Arts'], ['1502', 'Leisure'], ['1305', 'Kids & Family'], ['1483', 'Fiction'],
+  ['1314', 'Religion & Spirituality'], ['1511', 'Government']];
+const chartMem = new Map();
+async function loadTopPods(genre = '') {
+  const key = `chart:${CC}:${genre}`;
+  const mem = chartMem.get(key); if (mem && Date.now() - mem.at < 3 * 3600e3) return mem.list;
+  try {
+    const d = await fetchJSON(`https://itunes.apple.com/${CC.toLowerCase()}/rss/toppodcasts/limit=50${genre ? `/genre=${genre}` : ''}/json`);
+    const list = (d.feed?.entry || []).map(e => ({ id: e.id?.attributes?.['im:id'], name: e['im:name']?.label, author: e['im:artist']?.label, art: e['im:image']?.at(-1)?.label })).filter(p => p.id && p.name);
+    if (!list.length) throw new Error('empty chart');
+    const v = { at: Date.now(), list }; chartMem.set(key, v); idb.put('kv', v, key).catch(() => {});
+    return list;
+  } catch (e) {
+    const saved = await idb.get('kv', key).catch(() => null);   // last chart seen, for offline use
+    if (saved?.list?.length) { chartMem.set(key, saved); return saved.list; }
+    throw e;
+  }
 }
+const rankCard = (p, i) => podCard(p).replace('<a class="card"', `<a class="card ranked" data-rank="${i + 1}"`);
 async function searchPods(q) {
   if (podSearchMem.has(q)) return podSearchMem.get(q);
   const d = await fetchJSON('https://itunes.apple.com/search?' + new URLSearchParams({ term: q, media: 'podcast', entity: 'podcast', limit: 30 }));
@@ -1403,8 +1420,12 @@ async function podcastsView() {
     try { const r = await searchPods(S.podQ); fill('#pod-results', r.length ? `<h2>Results for “${esc(S.podQ)}”</h2><div class="grid">${r.map(podCard).join('')}</div>` : `<div class="empty">No podcasts match “${esc(S.podQ)}”.</div>`); }
     catch { fill('#pod-results', offlineNote('podcast')); }
   } else {
-    try { const top = await loadTopPods(); fill('#pod-top', top.length ? `<h2>Popular right now</h2><div class="grid">${top.map(podCard).join('')}</div>` : ''); }
-    catch { fill('#pod-top', S.pods.length || dls.length ? '' : offlineNote('podcast')); }
+    const g = S.podGenre, label = POD_GENRES.find(x => x[0] === g)?.[1] || 'All';
+    const chips = `<div class="chips pod-genres">${POD_GENRES.map(([id, n]) => `<button class="chip ${id === g ? 'active' : ''}" data-act="pod-genre" data-g="${id}">${esc(n)}</button>`).join('')}</div>`;
+    const head = `<h2>Top 50${g ? ` in ${esc(label)}` : ''}</h2><p class="muted" style="margin:-6px 0 10px">The most popular podcasts in ${esc(regionName || 'your country')} right now, from Apple's charts.</p>`;
+    fill('#pod-top', head + chips + '<p class="muted">Loading the chart…</p>');
+    try { const top = await loadTopPods(g); fill('#pod-top', head + chips + (top.length ? `<div class="grid">${top.map(rankCard).join('')}</div>` : '<div class="empty">No chart for this category right now.</div>')); }
+    catch { fill('#pod-top', head + chips + (navigator.onLine ? '<div class="empty">Couldn\'t load this chart. Try again in a moment.</div>' : offlineNote('podcast'))); }
   }
 }
 async function downloadEp(t) {
@@ -2328,6 +2349,7 @@ const A = {
     saveFx(); rerender();
   },
   'ia-set': el => { S.iaSet = el.dataset.set; rerender(); },
+  'pod-genre': el => { S.podGenre = el.dataset.g; idb.put('kv', S.podGenre, 'podGenre').catch(() => {}); rerender(); },
   'save-album': async () => {
     const al = S.curAlbum; if (!al) return;
     const on = S.ia.some(a => a.id === al.id);
@@ -2437,6 +2459,7 @@ async function boot() {
   S.dl = await idb.get('kv', 'dl') || {};
   S.epos = await idb.get('kv', 'epos') || {};
   S.ia = await idb.get('kv', 'iaSaved') || [];
+  S.podGenre = await idb.get('kv', 'podGenre') || '';
   S.hist = await idb.get('kv', 'hist') || [];
   { const fx = await idb.get('kv', 'fx'); if (fx) S.fx = { ...S.fx, ...fx, bands: Array.isArray(fx.bands) && fx.bands.length === 5 ? fx.bands : S.fx.bands }; }
   for (const x of state?.remote || []) reg(x);

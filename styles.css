@@ -386,3 +386,12 @@ body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-
 #rescue button { padding: 14px 18px; border-radius: 999px; border: 0; font: inherit; font-weight: 700; background: #ff7a59; color: #1a0d08; }
 #rescue button + button { background: #262630; color: #f3f1ee; }
 #rescue .why { font-size: 12px; color: #807d88; }
+
+/* ---------- podcast charts ---------- */
+.card.ranked { position: relative; }
+.card.ranked::before { content: attr(data-rank); position: absolute; z-index: 1; top: 16px; left: 16px; min-width: 30px; height: 30px; padding: 0 8px; border-radius: 999px; display: grid; place-items: center; background: #000c; color: #fff; font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+.card.ranked:nth-child(-n+3)::before { background: var(--accent); color: var(--accent-ink); }
+.pod-genres { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; margin-bottom: 14px; }
+.pod-genres::-webkit-scrollbar { display: none; }
+.pod-genres .chip { flex: none; }
+@media (max-width: 768px) { .card.ranked::before { top: 12px; left: 12px; } .pod-genres { margin-right: -16px; padding-right: 16px; } }

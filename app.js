@@ -132,12 +132,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 39, date: '2026-11-13', notes: ['Made for you: four Daily Mixes on Home, new every day, built from your own music', 'Your year in music: your top artists and songs as a picture to share (Home or Your stats)'] },
   { v: 38, date: '2026-11-13', notes: ['Import playlists from Spotify (using Exportify), other apps (M3U and PLS files) or a pasted list of songs: Playlists → Import playlist', 'Songs you don’t have get a YouTube Music link'] },
   { v: 37, date: '2026-11-13', notes: ['Star ratings: ⋯ → Rate this song, or tap the stars on Now Playing; sort and smart playlists by rating', 'Smart shuffle: songs you heard today play last, and the same artist is kept apart', 'Larger text option (Settings → Appearance)', 'Share Seylumi with a QR code (Settings → About)'] },
   { v: 36, date: '2026-11-12', notes: ['Now Playing animations: Bars, Wave, Ring or Pulse, moving with the music (⋯ on Now Playing, or Settings → Appearance)', 'Little dancing bars on the song that is playing'] },
@@ -188,6 +189,9 @@ const TR_PATTERNS = [
   [/^Rated ([★☆]{5})$/, m => P('rated', { x: m[1] })],
   [/^Rating: ([★☆]{5})$/, m => P('rating', { x: m[1] })],
   [/^(\d+) playlists? added with (\d+) of your songs$/, m => P('pladded', { a: m[1], b: m[2] })],
+  [/^Daily Mix (\d)$/, m => P('dailymix', { n: m[1] })],
+  [/^(.+), (.+) and more$/, m => P('andmore', { a: m[1], b: m[2] })],
+  [/^(\d+) plays · (\d+) artists · (\d+) different songs\. Counted on this device only\.$/, m => P('yearstats', { a: m[1], b: m[2], c: m[3] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1490,6 +1494,79 @@ const MIXES = {
   history: { name: 'Recently played', icon: 'repeat', bg: '#2d6a4f,#1b4332', ids: () => [...shown()].filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 100).map(t => t.id) },
 };
 
+/* ---------------- made for you: daily mixes ---------------- */
+// Up to four mixes a day, each built around an artist you play a lot, filled out with the song-radio engine.
+// They stay the same all day (kept in storage) and change the next day.
+let daily = null;
+const dayKey = () => new Date().toDateString();
+async function dailyMixes() {
+  if (daily?.day === dayKey()) return daily.mixes;
+  if (!daily) { try { const d = await idb.get('kv', 'daily'); if (d?.day === dayKey()) { daily = d; return d.mixes; } } catch {} }
+  const ts = [...shown()].filter(t => !t.url); if (ts.length < 12) { daily = { day: dayKey(), mixes: [] }; return []; }
+  // artists ranked by recent listening, then by plays, then by how many songs you have
+  const score = new Map(), since = Date.now() - 60 * 864e5;
+  for (const h of S.hist) if (h.a >= since && h.k !== 'episode') { const t = S.tracks.get(h.i); if (t) { const a = norm(t.albumArtist || t.artist); score.set(a, (score.get(a) || 0) + 3); } }
+  for (const t of ts) { const a = norm(t.albumArtist || t.artist); if (!a || a === 'unknown artist') continue; score.set(a, (score.get(a) || 0) + (t.plays || 0) + (t.liked ? 2 : 0) + 0.05); }
+  const ranked = [...score.entries()].filter(([a]) => a && a !== 'unknown artist').sort((x, y) => y[1] - x[1]).map(x => x[0]);
+  const used = new Set(), genres = new Set(), mixes = [];
+  for (const a of ranked) {
+    if (mixes.length >= 4) break;
+    const mine = ts.filter(t => norm(t.albumArtist || t.artist) === a); if (!mine.length) continue;
+    const seed = mine.sort((x, y) => (y.plays || 0) - (x.plays || 0) + Math.random() - 0.5)[0], g = norm(seed.genre);
+    if (g && genres.has(g) && ranked.length > 8 && mixes.length < 3) continue;   // prefer mixes that sound different
+    const size = Math.max(10, Math.min(30, Math.floor(ts.length / 4)));
+    const picks = radioPicks(seed, size, used).filter(id => !used.has(id));
+    const ids = [seed.id, ...shuffleArr(mine.filter(t => t.id !== seed.id)).slice(0, 4).map(t => t.id), ...picks].filter((id, i, arr) => arr.indexOf(id) === i).slice(0, size + 5);
+    if (ids.length < 8) continue;
+    ids.forEach(id => used.add(id)); if (g) genres.add(g);
+    const names = [...new Set([seed.artist, ...ids.map(id => T(id)?.artist)].filter(Boolean))].slice(0, 3);
+    mixes.push({ ids: smartShuffle(ids.slice(1)).length ? [ids[0], ...smartShuffle(ids.slice(1))] : ids, names, art: seed.artId, genre: seed.genre || '' });
+  }
+  daily = { day: dayKey(), mixes };
+  idb.put('kv', daily, 'daily').catch(() => {});
+  return mixes;
+}
+const MIX_BG = ['#ff7a59,#7b2cbf', '#2a9d8f,#264653', '#e9c46a,#9d174d', '#4361ee,#3a0ca3'];
+const mixSub = m => m.names.length > 2 ? `${m.names.slice(0, 2).join(', ')} and more` : m.names.join(' and ');
+
+/* ---------------- your year in music ---------------- */
+function yearData(y) {
+  const from = new Date(y, 0, 1).getTime(), to = new Date(y + 1, 0, 1).getTime();
+  const h = S.hist.filter(x => x.a >= from && x.a < to && x.k !== 'episode');
+  const count = key => { const m = new Map(); for (const x of h) { const k = key(x); if (k) { const e = m.get(k) || m.set(k, { n: 0, x }).get(k); e.n++; } } return [...m.values()].sort((a, b) => b.n - a.n); };
+  const months = new Array(12).fill(0); for (const x of h) months[new Date(x.a).getMonth()] += (x.d || 0);
+  const genre = count(x => { const t = S.tracks.get(x.i); return t?.genre ? t.genre.split(/[;,/]/)[0].trim() : ''; });
+  const first = h[0] && S.tracks.get(h[0].i);
+  return { y, plays: h.length, mins: Math.round(h.reduce((a, x) => a + (x.d || 0), 0) / 60), artists: count(x => x.r), songs: count(x => x.i), genre: genre[0]?.x && S.tracks.get(genre[0].x.i)?.genre.split(/[;,/]/)[0].trim(), topMonth: months.indexOf(Math.max(...months)), months, first };
+}
+const L = s => (I18N && trCore(s)) || s;
+async function yearImage(d) {
+  const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff7a59';
+  const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, accent); bg.addColorStop(0.45, '#3a1530'); bg.addColorStop(1, '#0e0e12'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.globalAlpha = 0.12; g.fillStyle = '#fff'; for (let i = 0; i < 7; i++) { g.beginPath(); g.arc(W * (0.15 + 0.13 * i), 260 + 90 * Math.sin(i), 60 + 25 * (i % 3), 0, 7); g.fill(); } g.globalAlpha = 1;
+  const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const fit = (txt, w, px, max) => { g.font = F(w, px); let t = String(txt); while (g.measureText(t).width > max && t.length > 2) t = t.slice(0, -2) + '…'; if (t !== String(txt)) t = t.replace(/……$/, '…'); return t; };
+  g.fillStyle = '#fff'; g.textBaseline = 'alphabetic';
+  g.font = F(600, 44); g.fillText('Seylumi', 80, 130);
+  g.font = F(800, 120); g.fillText(String(d.y), 80, 420);
+  g.font = F(600, 56); g.fillText(fit(L('My year in music'), 600, 56, W - 160), 80, 500);
+  g.font = F(800, 150); g.fillText(d.mins.toLocaleString(), 80, 720);
+  g.font = F(500, 46); g.globalAlpha = .85; g.fillText(fit(L('minutes listened'), 500, 46, W - 160), 80, 785); g.globalAlpha = 1;
+  const list = (title, rows, y0) => {
+    g.font = F(700, 44); g.globalAlpha = .75; g.fillText(fit(L(title), 700, 44, W - 160), 80, y0); g.globalAlpha = 1;
+    rows.slice(0, 5).forEach((r, i) => { const y = y0 + 78 + i * 72; g.font = F(800, 46); g.fillText(String(i + 1), 80, y); g.fillText(fit(r, 600, 46, W - 220), 140, y); });
+  };
+  list('Top artists', d.artists.map(e => e.x.r), 900);
+  list('Top songs', d.songs.map(e => e.x.t), 900 + 78 + Math.min(5, d.artists.length) * 72 + 70);
+  g.font = F(600, 40); g.globalAlpha = .85;
+  const facts = [d.genre ? `${L('Top genre')}: ${d.genre}` : '', d.months[d.topMonth] ? `${L('Busiest month')}: ${new Date(d.y, d.topMonth, 1).toLocaleDateString(LANG, { month: 'long' })}` : ''].filter(Boolean);
+  g.fillText(fit(facts.join('  ·  '), 600, 40, W - 160), 80, 1760);
+  g.font = F(500, 34); g.globalAlpha = .6; g.fillText('sharkey171.github.io/cadence', 80, 1850); g.globalAlpha = 1;
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+let yearBlob = null;
+
 /* ---------------- online: free podcasts + live radio ---------------- */
 const safeUrl = u => /^https:\/\//i.test(u || '') ? u.replace(/['"\\()\s<>]/g, c => '%' + c.charCodeAt(0).toString(16)) : '';
 function reg(item) { S.remote.set(item.id, item); const u = safeUrl(item.art); if (u) S.artUrls.set(item.artId, u); return item; }
@@ -2396,10 +2473,39 @@ const VIEWS = {
     setView(
       `<h1>${hr < 5 ? 'Late night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}</h1>
        <div class="muted">${total(ts)} in your library</div>${heroActions(`<a class="btn" href="#/stats">${ic('chart')}Your stats</a>`).replace('Play<', 'Play all<')}`,
+      '<div id="mfy"></div>',
       recent.length ? `<h2>Jump back in</h2><div class="tiles">${recent.map(t => `<button class="tile" data-act="play-recent" data-id="${t.id}">${artDiv(t.artId, t.album || t.title)}<span>${esc(t.title)}</span></button>`).join('')}</div>` : '',
       `<h2>Recently added</h2><div class="grid">${newest.map(albumCard).join('')}</div>`,
       top.length ? '<h2>Most played</h2>' : '', top.length ? trackList(top.map(t => t.id)) : null,
     );
+    const here = location.hash;
+    dailyMixes().then(ms => {
+      const el = $('#mfy'); if (!el || location.hash !== here) return;
+      const yr = new Date().getFullYear(), m = new Date().getMonth(), hasYear = S.hist.some(x => x.a >= new Date(m < 1 ? yr - 1 : yr, 0, 1).getTime());
+      const yearCard = hasYear ? `<a class="card" href="#/year"><div class="art mix-art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('chart')}<b>${m < 1 ? yr - 1 : yr}</b></div><div class="card-title">Your year in music</div><div class="card-sub">Your top songs and artists</div></a>` : '';
+      if (!ms.length && !yearCard) return;
+      el.innerHTML = `<h2>Made for you</h2><div class="grid">${ms.map((x, i) => `<a class="card" href="#/daily/${i}"><div class="art mix-art" style="background:linear-gradient(135deg,${MIX_BG[i]})">${ic('radio')}<b>${i + 1}</b></div><div class="card-title">Daily Mix ${i + 1}</div><div class="card-sub">${esc(mixSub(x))}</div></a>`).join('')}${yearCard}</div>`;
+    });
+  },
+  async daily(i) {
+    const ms = await dailyMixes(), m = ms[+i];
+    if (!m) return setView('<div class="empty">This mix has changed. Go back to Home for today’s mixes.</div>');
+    viewIds = m.ids.filter(has);
+    setView(`<div class="hero"><div class="art mix-art" style="background:linear-gradient(135deg,${MIX_BG[+i]})">${ic('radio')}<b>${+i + 1}</b></div><div class="hero-text"><div class="kind">Made for you</div><h1>Daily Mix ${+i + 1}</h1>
+      <div class="muted">${esc(mixSub(m))} · ${total(viewIds.map(T))}</div><p class="muted" style="margin:4px 0 0">New mixes every day, from your own music.</p>${heroActions(`<button class="btn" data-act="save-daily" data-i="${+i}">${ic('plus')}Save as playlist</button>`)}</div></div>`, trackList(viewIds));
+  },
+  async year(y) {
+    const years = [...new Set(S.hist.filter(x => x.k !== 'episode').map(x => new Date(x.a).getFullYear()))].sort((a, b) => b - a);
+    const now = new Date(), def = now.getMonth() < 1 && years.includes(now.getFullYear() - 1) ? now.getFullYear() - 1 : years[0];
+    y = +y || def; viewIds = [];
+    if (!years.length) return setView('<h1>Your year in music</h1><div class="empty">Play some music and your year fills in by itself.</div>');
+    const d = yearData(y);
+    const chips = years.length > 1 ? `<div class="chips">${years.map(v => `<a class="chip ${v === y ? 'active' : ''}" href="#/year/${v}">${v}</a>`).join('')}</div>` : '';
+    setView(`<h1>Your year in music</h1>`, chips,
+      `<div class="year-wrap"><img id="year-img" alt="Your year in music, ${y}"><div class="hero-actions"><button class="btn primary" data-act="year-share">${ic('share')}Share picture</button><button class="btn" data-act="year-save">${ic('save')}Save picture</button></div>
+       <p class="muted">${d.plays} plays · ${d.artists.length} artists · ${d.songs.length} different songs. Counted on this device only.</p></div>`);
+    yearBlob = await yearImage(d);
+    const img = $('#year-img'); if (img && yearBlob) img.src = URL.createObjectURL(yearBlob);
   },
   library(tab = 'songs') {
     if (!S.tracks.size) return setView(emptyLib());
@@ -2445,7 +2551,7 @@ const VIEWS = {
     const since = S.statP ? Date.now() - S.statP * 864e5 : 0, h = S.hist.filter(x => x.a >= since);
     const chips = `<div class="chips">${P.map(([d, l]) => `<button class="chip ${S.statP === d ? 'active' : ''}" data-act="stat-p" data-d="${d}">${l}</button>`).join('')}</div>`;
     viewIds = [];
-    if (!h.length) return setView('<h1>Your listening</h1>', chips, `<div class="empty">Nothing played in this period yet. ${S.hist.length ? '' : 'Listening is counted from now on: a song counts once you have heard 30 seconds of it.'}</div>`);
+    if (!h.length) return setView('<h1>Your listening</h1>', chips, `<div class="empty">Nothing played in this period yet. ${S.hist.length ? '' : 'Listening is counted from now on: a song counts once you have heard 30 seconds of it.'}</div>`, S.hist.length ? `<p><a class="btn" href="#/year">${ic('chart')}Your year in music</a></p>` : '');
     const count = fn => { const m = new Map(); for (const x of h) { const k = fn(x); if (!k) continue; const e = m.get(k) || m.set(k, { n: 0, x }).get(k); e.n++; } return [...m.values()].sort((a, b) => b.n - a.n); };
     const music = x => x.k !== 'episode';
     const artists = count(x => music(x) && x.r), songs = count(x => music(x) && x.i), shows = count(x => !music(x) && x.r);
@@ -2458,7 +2564,7 @@ const VIEWS = {
       artists.length ? '<h2>Top artists</h2>' + bars(artists, x => x.r) : '',
       songs.length ? '<h2>Top songs</h2>' + bars(songs, x => `${x.t} · ${x.r || 'Unknown artist'}`) : '',
       shows.length ? '<h2>Top podcasts</h2>' + bars(shows, x => x.r) : '',
-      `<p class="muted" style="margin-top:20px">You listen most on ${esc(days[0].x && new Date(days[0].x.a).toLocaleDateString(undefined, { weekday: 'long' }))}s. Counting started ${new Date(S.hist[0].a).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`);
+      `<p style="margin-top:20px"><a class="btn" href="#/year">${ic('chart')}Your year in music</a></p><p class="muted" style="margin-top:12px">You listen most on ${esc(days[0].x && new Date(days[0].x.a).toLocaleDateString(undefined, { weekday: 'long' }))}s. Counting started ${new Date(S.hist[0].a).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`);
   },
   liked() {
     const ts = likedItems();
@@ -2626,7 +2732,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -2841,6 +2947,23 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'save-daily': async el => {
+    const i = +el.dataset.i, m = (await dailyMixes())[i]; if (!m) return;
+    const name = `Daily Mix ${i + 1} · ${new Date().toLocaleDateString(LANG, { day: 'numeric', month: 'short' })}`;
+    const p = { id: uid(), name, trackIds: m.ids.filter(has), createdAt: Date.now() };
+    S.playlists.push(p); await idb.put('playlists', p); renderSidePlaylists(); toast(`Saved as “${name}”`);
+  },
+  'year-share': async () => {
+    if (!yearBlob) return;
+    const file = new File([yearBlob], 'seylumi-year.png', { type: 'image/png' });
+    try { if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file], title: 'My year in music', text: 'My year in music, from Seylumi' }); } catch (e) { if (e?.name === 'AbortError') return; }
+    A['year-save']();
+  },
+  'year-save': () => {
+    if (!yearBlob) return;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(yearBlob); a.download = 'seylumi-year-in-music.png';
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000); toast('Picture saved');
+  },
   'import-pl': importPlaylistDialog,
   'import-pl-file': () => { $('#import-pl').close(); $('#pl-input').click(); },
   'share-app-link': async () => {

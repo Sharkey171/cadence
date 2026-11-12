@@ -451,3 +451,8 @@ body.is-playing .row.playing .row-art::after { animation: eqbars .9s ease-in-out
 #share-app .qr svg { display: block; width: 100%; height: auto; }
 #import-pl textarea { width: 100%; box-sizing: border-box; background: var(--raised); color: inherit; border: 1px solid var(--line, #333); border-radius: 10px; padding: 10px; font: inherit; font-size: 14px; resize: vertical; margin-bottom: 8px; }
 #import-pl p { margin: 0 0 10px; } #import-pl a { color: var(--accent); }
+.mix-art { position: relative; display: grid; place-items: center; color: #fff; }
+.mix-art b { position: absolute; right: 10px; bottom: 6px; font-size: 28px; font-weight: 800; opacity: .9; }
+.hero .mix-art b { font-size: 40px; }
+.year-wrap { max-width: 420px; }
+.year-wrap img { width: 100%; aspect-ratio: 9/16; border-radius: 16px; display: block; margin-bottom: 14px; background: var(--raised); box-shadow: 0 10px 40px #0006; }

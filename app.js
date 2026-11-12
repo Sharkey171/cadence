@@ -58,6 +58,7 @@ const ICONS = {
   chart: stroke('<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>'),
   out: stroke('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
   yt: stroke('<rect x="2.500" y="5" width="19" height="14" rx="4"/><path d="M10 9.500v5l4.500-2.500z" fill="currentColor"/>'),
+  share: stroke('<circle cx="18" cy="5" r="2.500"/><circle cx="6" cy="12" r="2.500"/><circle cx="18" cy="19" r="2.500"/><path d="M8.200 10.900l7.600-4.600M8.200 13.100l7.600 4.600"/>'),
   moon: stroke('<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500z"/>'),
   up: stroke('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   dn: stroke('<path d="M12 5v14M6 13l6 6 6-6"/>'),
@@ -111,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 28;
+const APP_VERSION = 29;
 const LINKS = {
   feedback: '',   // Google Form for "Send feedback" (button hidden until set)
   donate: '',     // PayPal.me link for "Support the app" (button hidden until set)
 };
 const RELEASES = [
+  { v: 29, date: '2026-11-12', notes: ['Share playlists as a link: the songs your friend has play from their own library, the rest open on YouTube Music'] },
   { v: 28, date: '2026-11-12', notes: ['Song radio: start from any song (⋯ → Song radio) or artist (Radio button) for an endless mix of similar music from your library'] },
   { v: 27, date: '2026-11-12', notes: ['Folder view: browse your music the way it is stored (Library → Folders)', 'Hide folders, and clips under 30 seconds, 1 or 2 minutes, from your library (Settings → Hide songs)'] },
   { v: 26, date: '2026-11-12', notes: ['Version number and this What’s new page', 'Updates now install with one tap on Restart, or by themselves when you open the app', 'Send feedback and Support the app buttons in Settings'] },
@@ -1903,6 +1905,50 @@ async function exportTracks(ids) {
 }
 const saveBtn = `<button class="icon-btn" data-act="export-view" aria-label="Download these songs as files to this device">${ic('save')}</button>`;
 
+/* ---------------- sharing playlists as links ---------------- */
+// The link carries only song names and artists (plus the public address of any radio station,
+// podcast episode or free-music track). The other person's Cadence matches them to their own music.
+const b64url = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64url = str => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+async function packShare(obj) {
+  const raw = new TextEncoder().encode(JSON.stringify(obj));
+  return window.CompressionStream ? '1' + b64url(await pipeBytes(raw, new CompressionStream('deflate-raw'))) : '0' + b64url(raw);
+}
+async function unpackShare(code) {
+  let bytes = unb64url(code.slice(1));
+  if (code[0] === '1') bytes = await pipeBytes(bytes, new DecompressionStream('deflate-raw'));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+async function sharePlaylist(name, ids) {
+  const items = ids.map(T).filter(Boolean).slice(0, 500).map(t => t.url
+    ? { k: t.kind, t: t.title, a: t.kind === 'station' && t.artist === 'Added by you' ? 'Radio station' : t.artist, u: t.url, ...(t.kind === 'episode' ? { p: t.podId } : t.kind === 'ia' ? { p: t.iaId } : {}) }
+    : { t: t.title, a: t.artist || '' });
+  if (!items.length) return toast('This playlist is empty');
+  const url = `${location.origin}${location.pathname}#/shared/${await packShare({ v: 1, n: name, s: items })}`;
+  const text = `${name} — ${items.length} song${items.length === 1 ? '' : 's'}. Open it in Cadence, the free offline music player:`;
+  try { if (navigator.share && !isDesktop()) return await navigator.share({ title: name, text, url }); } catch (e) { if (e?.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); toast('Link copied — paste it into a message to share the playlist'); }
+  catch { ask({ title: 'Copy this link', text: 'Select and copy it, then paste it into a message.', input: url, ok: 'Done' }); }
+}
+let sharedNow = null;   // the shared playlist being viewed: { name, rows: [{ item, id }] }
+function matchShared(items) {
+  const exact = new Map(), byTitle = new Map();
+  for (const t of shown()) {
+    const tk = norm(cleanTitle(t.title)); exact.set(`${tk}|${norm(t.artist)}`, t);
+    (byTitle.get(tk) || byTitle.set(tk, []).get(tk)).push(t);
+  }
+  return items.map(it => {
+    if (it.u && /^https:\/\//i.test(it.u)) {   // online items play straight from their address
+      const kind = it.k === 'station' || it.k === 'episode' || it.k === 'ia' ? it.k : 'ia', id = (kind === 'station' ? 'st:shared:' : kind === 'episode' ? 'ep:shared:' : 'ia:shared:') + hashStr(it.u);
+      const item = S.remote.get(id) || reg({ id, kind, title: String(it.t || 'Untitled').slice(0, 200), artist: String(it.a || '').slice(0, 200), album: kind === 'station' ? 'Live radio' : '', url: it.u, live: kind === 'station', artId: 'r:' + id, ...(kind === 'episode' ? { podId: String(it.p || '') } : kind === 'ia' ? { iaId: String(it.p || '') } : {}) });
+      return { it, id: item.id };
+    }
+    const tk = norm(cleanTitle(it.t)), t = exact.get(`${tk}|${norm(it.a)}`) || (byTitle.get(tk) || []).find(x => !it.a || !x.artist || sameArtist(x.artist, it.a));
+    return { it, id: t?.id || null };
+  });
+}
+
 /* ---------------- selecting several songs ---------------- */
 function syncSel() {
   if (S.sel.size && $('#selbar').hidden) overlayOpened(); else if (!S.sel.size && !$('#selbar').hidden) overlayClosed();
@@ -2186,7 +2232,7 @@ const VIEWS = {
     const ts = likedItems();
     viewIds = ts.map(t => t.id);
     setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="hero-text"><div class="kind">Playlist</div><h1>Liked songs</h1>
-      <div class="muted">${total(ts)}</div>${ts.length ? heroActions() : ''}</div></div>`,
+      <div class="muted">${total(ts)}</div>${ts.length ? heroActions(`<button class="icon-btn" data-act="share-view" data-name="Liked songs" aria-label="Share these songs as a link">${ic('share')}</button>`) : ''}</div></div>`,
       ts.length ? trackList(viewIds) : '<div class="empty">Tap the heart on any song to save it here.</div>');
   },
   playlists() {
@@ -2200,7 +2246,7 @@ const VIEWS = {
     viewIds = playlistIds(p);
     const ts = viewIds.map(T);
     setView(`<div class="hero">${artDiv(ts[0]?.artId, p.name, '', p.smart ? 'spark' : 'list')}<div class="hero-text"><div class="kind">${p.smart ? 'Smart playlist' : 'Playlist'}</div><h1>${esc(p.name)}</h1>
-      <div class="muted">${p.smart ? esc(smartText(p)) + ' · ' : ''}${total(ts)}</div>${heroActions(`<button class="icon-btn" data-act="playlist-menu" data-id="${p.id}" aria-label="Playlist options">${ic('dots')}</button>`)}</div></div>`,
+      <div class="muted">${p.smart ? esc(smartText(p)) + ' · ' : ''}${total(ts)}</div>${heroActions(`<button class="icon-btn" data-act="share-view" data-name="${esc(p.name)}" aria-label="Share this playlist as a link">${ic('share')}</button><button class="icon-btn" data-act="playlist-menu" data-id="${p.id}" aria-label="Playlist options">${ic('dots')}</button>`)}</div></div>`,
       ts.length ? trackList(viewIds, p.smart ? {} : { playlistId: p.id }) : `<div class="empty">${p.smart ? 'No songs match this rule yet.' : 'This playlist is empty. Use the ⋯ menu on any song to add it.'}</div>`);
   },
   genre(name) {
@@ -2235,6 +2281,21 @@ const VIEWS = {
       hiddenBy ? `<div class="hidden-note">This folder is hidden from your library, search and shuffle${hiddenBy !== `${fid}|${prefix}` ? ' (a folder above it is hidden)' : ''}. Its songs are still here and play from this page.</div>` : '',
       subs.length ? `<div class="folders">${subs.map(([n, e]) => folderRow(folderHref(fid, prefix + n + '/'), n, e.n, e.art, !!folderHiddenBy(fid, prefix + n + '/'))).join('')}</div>` : '',
       songs.length ? `<h2>${subs.length ? 'Songs in this folder' : 'Songs'}</h2>` : '', songs.length ? trackList(songs.sort((a, b) => (a.path || a.fileName).localeCompare(b.path || b.fileName, undefined, { numeric: true })).map(t => t.id), { showHidden: true }) : null);
+  },
+  async shared(code) {
+    let data = null;
+    try { data = await unpackShare(code || ''); } catch {}
+    if (!data || !Array.isArray(data.s)) return setView('<div class="empty"><h1>This link doesn’t work</h1><p>It may have been cut short when it was copied. Ask for it to be sent again.</p></div>');
+    const name = String(data.n || 'Shared playlist').slice(0, 80), rows = matchShared(data.s.slice(0, 500));
+    const have = rows.filter(r => r.id), missing = rows.filter(r => !r.id);
+    sharedNow = { name, rows }; viewIds = have.map(r => r.id);
+    const yt = it => `https://music.youtube.com/search?q=${encodeURIComponent(`${it.t} ${it.a || ''}`.trim())}`;
+    setView(`<div class="hero"><div class="art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('share')}</div><div class="hero-text"><div class="kind">Shared playlist</div><h1>${esc(name)}</h1>
+      <div class="muted">${rows.length} song${rows.length === 1 ? '' : 's'} · ${have.length} in your library${missing.length ? ` · ${missing.length} not` : ''}</div>
+      ${have.length ? heroActions(`<button class="btn" data-act="save-shared">${ic('plus')}Save as playlist</button>`) : ''}</div></div>`,
+      have.length ? `<h2>${missing.length ? 'In your library' : 'Songs'}</h2>` : '', have.length ? trackList(viewIds) : '',
+      missing.length ? `<h2>Not in your library</h2><p class="muted" style="margin:-6px 0 8px">${S.tracks.size ? 'Add these to your music to play them here, or listen on YouTube Music.' : 'Add your own music to Cadence and the songs you have will play here. Meanwhile you can listen on YouTube Music.'}</p>
+        <div class="missing">${missing.map(r => `<div class="miss-row"><div class="row-main"><div class="row-title">${esc(r.it.t)}</div><div class="row-sub">${esc(r.it.a || 'Unknown artist')}</div></div><a class="btn" href="${esc(yt(r.it))}" target="_blank" rel="noopener" aria-label="Find this song on YouTube Music">${ic('yt')}Listen</a></div>`).join('')}</div>` : '');
   },
   mix(kind) {
     const m = MIXES[kind]; if (!m) return setView('<div class="empty">Not found.</div>');
@@ -2328,7 +2389,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -2422,6 +2483,7 @@ const A = {
   'playlist-menu': (el, e) => {
     const p = S.playlists.find(x => x.id === el.dataset.id); if (!p) return;
     openMenu([
+      { label: 'Share playlist', icon: 'share', fn: () => sharePlaylist(p.name, viewIds) },
       { label: 'Add to queue', icon: 'queue', fn: () => enqueue(viewIds, false) },
       { label: 'Rename', icon: 'edit', fn: async () => { const n = await ask({ title: 'Rename playlist', input: p.name, ok: 'Save' }); if (n) { p.name = n; await idb.put('playlists', p); renderSidePlaylists(); route(); } } },
       { label: 'Delete playlist', icon: 'trash', danger: true, fn: async () => {
@@ -2445,6 +2507,16 @@ const A = {
   'edit-lookup': lookupInfo,
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
+  'share-view': el => sharePlaylist(el.dataset.name || 'Playlist', viewIds),
+  'save-shared': async () => {
+    const sh = sharedNow; if (!sh) return;
+    const ids = sh.rows.filter(r => r.id).map(r => r.id);
+    for (const id of ids) if (S.remote.has(id)) await keep(S.remote.get(id));
+    let name = sh.name; if (S.playlists.some(p => p.name === name)) name += ' (shared)';
+    const p = { id: uid(), name, trackIds: ids, createdAt: Date.now() };
+    S.playlists.push(p); await idb.put('playlists', p); renderSidePlaylists();
+    toast(`Saved “${name}” with ${ids.length} song${ids.length === 1 ? '' : 's'}`); location.hash = `#/playlist/${p.id}`;
+  },
   'artist-radio': () => { const ts = viewIds.map(id => S.tracks.get(id)).filter(Boolean); if (!ts.length) return; const seed = [...ts].sort((a, b) => (b.plays || 0) - (a.plays || 0) || (b.liked || 0) - (a.liked || 0))[0]; startRadio(seed.id); },
   'radio-stop': () => { S.radio = null; saveState(); toast('Radio off: the queue stops at its end'); rerender(); },
   'folder-hide': () => { const c = S.curFolder; if (!c) return; const key = `${c.fid}|${c.prefix}`, by = folderHiddenBy(c.fid, c.prefix); setFolderHidden(by || key, !by); },

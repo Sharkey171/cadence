@@ -419,3 +419,9 @@ body, #sidebar, #player, #tabs, .card, .settings-block { transition: background-
 .radio-note { display: flex; align-items: center; gap: 12px; background: var(--raised); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; }
 .radio-note svg { color: var(--accent); flex: none; }
 .radio-note span { flex: 1; min-width: 0; }
+
+.missing { display: grid; gap: 2px; }
+.miss-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 8px; border-radius: 8px; opacity: .85; }
+.miss-row:hover { background: var(--raised); }
+.miss-row .btn { padding: 7px 14px; font-size: 13px; }
+.miss-row .btn svg { width: 16px; height: 16px; }

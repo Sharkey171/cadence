@@ -112,12 +112,13 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 33, date: '2026-11-12', notes: ['Fixed: the Privacy button opened a blank app instead of the privacy policy'] },
   { v: 32, date: '2026-11-12', notes: ['Cadence is now called Seylumi. Your music, playlists and settings are all still here.'] },
   { v: 31, date: '2026-11-12', notes: ['Send feedback and Support the app are now switched on in Settings'] },
   { v: 30, date: '2026-11-12', notes: ['Cadence in nine languages: English, Irish, Spanish, French, German, Polish, Portuguese, Italian and Dutch (Settings → Language)'] },

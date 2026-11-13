@@ -468,3 +468,12 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .mini-win .mw-like.on { color: var(--accent); }
 .b-mini.on { color: var(--accent); }
 .row.played .row-title { opacity: .55; }
+
+/* announcement card */
+.news-card { display: flex; gap: 12px; align-items: flex-start; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--panel)), var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 16px; padding: 14px 10px 14px 14px; margin: 4px 0 18px; transition: opacity .25s, transform .25s; }
+.news-card.gone { opacity: 0; transform: translateY(-6px); }
+.news-ic { color: var(--accent); flex: none; margin-top: 2px; } .news-ic svg { width: 22px; height: 22px; }
+.news-body { flex: 1; min-width: 0; } .news-body b { display: block; margin-bottom: 2px; } .news-body p { margin: 0; color: var(--text); line-height: 1.4; }
+.news-btn { margin-top: 10px; display: inline-flex; }
+.news-x { flex: none; margin: -6px 0 0; }
+#nfy .card { position: relative; text-align: left; font: inherit; color: inherit; border: 0; cursor: pointer; }

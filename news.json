@@ -1,0 +1,20 @@
+{
+  "_help": "Messages shown as a card on Seylumi's Home screen. Give each message a new id. Optional: title, button + link ('#/page' inside the app, 'whats-new', or a https:// address), from / until dates (YYYY-MM-DD), where ('web' or 'store'), lang (translations, e.g. {\"ga\": {\"text\": \"...\", \"button\": \"...\"}}). The first message that hasn't been dismissed is shown.",
+  "messages": [
+    {
+      "id": "2026-11-new-features",
+      "title": "New in Seylumi",
+      "text": "Daily Mixes, star ratings, playlist import from Spotify and your year in music are here.",
+      "button": "See what's new",
+      "link": "whats-new",
+      "until": "2026-12-20",
+      "lang": {
+        "ga": {
+          "title": "Nua in Seylumi",
+          "text": "Tá Meascáin Laethúla, rátálacha réaltaí, iompórtáil seinmliostaí ó Spotify agus do bhliain cheoil anseo.",
+          "button": "Féach cad atá nua"
+        }
+      }
+    }
+  ]
+}

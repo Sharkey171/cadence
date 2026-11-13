@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 44;
+const APP_VERSION = 45;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
@@ -142,6 +142,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 45, date: '2026-11-13', notes: ['New for you on Home: new podcast episodes, albums you just added and your Up next list', 'News from Seylumi appears as a small card on Home, which you can dismiss'] },
   { v: 44, date: '2026-11-13', notes: ['New store pictures'] },
   { v: 43, date: '2026-11-12', notes: ['Ready for the Google Play version'] },
   { v: 42, date: '2026-11-12', notes: ['Automatic backups: a weekly reminder, or on a computer a backup saved into a folder of your choice every week (Settings → Back up and transfer)'] },
@@ -178,7 +179,7 @@ function pickLang() {
   for (const l of navigator.languages || [navigator.language || 'en']) { const b = String(l).slice(0, 2).toLowerCase(); if (LANGS[b]) return b; }
   return 'en';
 }
-const NO_TR = '.row-title,.row-sub,.row-album,.card-title,.card-sub,.tile span,#p-title,#p-artist,#np-title,#np-artist,#car-title,#car-artist,#yt-title,.crumbs,.miss-row .row-main,.bio,#lyr pre,.lrc,.lyr-src,.bar-row span,.imp-file,#tag-file,[translate=no],.hero h1:not([data-tr]),.folder-row .row-title,#side-playlists span,.edit-cands,.cand,textarea,.hero .muted a,#rad-cc,#menu .menu-title';   // text boxes are kept for their placeholder; their contents are never touched
+const NO_TR = '.row-title,.row-sub,.row-album,.card-title:not([data-tr]),.card-sub:not([data-tr]),.tile span,#p-title,#p-artist,#np-title,#np-artist,#car-title,#car-artist,#yt-title,.crumbs,.miss-row .row-main,.bio,#lyr pre,.lrc,.lyr-src,.bar-row span,.imp-file,#tag-file,[translate=no],.hero h1:not([data-tr]),.folder-row .row-title,#side-playlists span,.edit-cands,.cand,textarea,.hero .muted a,#rad-cc,#menu .menu-title';   // text boxes are kept for their placeholder; their contents are never touched
 const plural = (key, n) => { const t = I18N.p[key]; if (typeof t === 'string') return t.replace('{n}', n); let cat = 'other'; try { cat = new Intl.PluralRules(LANG).select(+n); } catch {} return (t[cat] || t.other || '').replace('{n}', n); };
 const P = (key, vals) => Object.entries(vals).reduce((s, [k, v]) => s.replace(`{${k}}`, v), I18N.p[key] || '');
 const songsLen = m => plural('song', m[1]) + (m[3] ? ' · ' + (m[2] ? P('hr', { n: m[2] }) + ' ' : '') + P('min', { n: m[3] }) : '');
@@ -203,6 +204,7 @@ const TR_PATTERNS = [
   [/^(\d+) plays · (\d+) artists · (\d+) different songs\. Counted on this device only\.$/, m => P('yearstats', { a: m[1], b: m[2], c: m[3] })],
   [/^(\d+) new episodes? downloaded$/, m => P('newdl', { n: m[1] })],
   [/^(\d+) added to Up next$/, m => P('upadded', { n: m[1] })],
+  [/^(\d+) episodes waiting$/, m => P('epwait', { n: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1621,6 +1623,68 @@ async function dailyMixes() {
 const MIX_BG = ['#ff7a59,#7b2cbf', '#2a9d8f,#264653', '#e9c46a,#9d174d', '#4361ee,#3a0ca3'];
 const mixSub = m => m.names.length > 2 ? `${m.names.slice(0, 2).join(', ')} and more` : m.names.join(' and ');
 
+/* ---------------- announcements (news.json on the website) ---------------- */
+// The developer edits news.json on GitHub; the newest message that suits this device shows as a card on Home
+// until it is dismissed. Offline, or with no message, nothing shows.
+let newsCache = null, newsAt = 0;
+async function loadNews() {
+  if (newsCache && Date.now() - newsAt < 30 * 60e3) return newsCache;
+  try { const r = await fetch('news.json?t=' + Math.floor(Date.now() / 600e3), { cache: 'no-store' }); newsCache = r.ok ? await r.json() : { messages: [] }; }
+  catch { newsCache = newsCache || { messages: [] }; }
+  newsAt = Date.now(); return newsCache;
+}
+async function pickNews() {
+  const d = await loadNews(), seen = await idb.get('kv', 'newsSeen').catch(() => null) || [], today = new Date().toISOString().slice(0, 10);
+  for (const m of Array.isArray(d?.messages) ? d.messages : []) {
+    if (!m || !m.id || !m.text || seen.includes(m.id)) continue;
+    if (m.from && today < m.from) continue; if (m.until && today > m.until) continue;
+    if (m.minVersion && APP_VERSION < m.minVersion) continue; if (m.maxVersion && APP_VERSION > m.maxVersion) continue;
+    if (m.where === 'store' && !IN_STORE_APP) continue; if (m.where === 'web' && IN_STORE_APP) continue;
+    const tr = (m.lang && m.lang[LANG]) || {};
+    return { id: String(m.id), title: String(tr.title || m.title || ''), text: String(tr.text || m.text), button: String(tr.button || m.button || ''), link: String(m.link || '') };
+  }
+  return null;
+}
+function newsLinkAttrs(link) {
+  if (/^#\/[\w\/%.-]*$/.test(link)) return `href="${esc(link)}"`;
+  if (link === 'whats-new') return 'href="#" data-act="whats-new"';
+  if (/^https:\/\/[^\s"'<>]+$/i.test(link)) return `href="${esc(link)}" target="_blank" rel="noopener"`;
+  return '';
+}
+async function drawNews(here) {
+  const m = await pickNews(), el = $('#news'); if (!el || location.hash !== here || !m) return;
+  const a = m.button && newsLinkAttrs(m.link);
+  el.innerHTML = `<div class="news-card" data-id="${esc(m.id)}"><div class="news-ic">${ic('spark')}</div><div class="news-body">${m.title ? `<b translate="no">${esc(m.title)}</b>` : ''}<p translate="no">${esc(m.text)}</p>${a ? `<a class="btn primary news-btn" translate="no" ${a} data-news="${esc(m.id)}">${esc(m.button)}</a>` : ''}</div><button class="icon-btn news-x" data-act="news-dismiss" data-id="${esc(m.id)}" aria-label="Dismiss">${ic('x')}</button></div>`;
+}
+async function dismissNews(id) {
+  const seen = await idb.get('kv', 'newsSeen').catch(() => null) || [];
+  if (!seen.includes(id)) { seen.push(id); await idb.put('kv', seen.slice(-200), 'newsSeen').catch(() => {}); }
+  const c = $('#news .news-card'); if (c) { c.classList.add('gone'); setTimeout(() => c.remove(), 250); }
+}
+
+/* ---------------- new for you ---------------- */
+// What is genuinely new: episodes from followed shows you haven't heard, albums added in the last two weeks,
+// the Up next list, and the year in music in December. Hidden when there's nothing new.
+async function newForYou() {
+  const tiles = [], now = Date.now();
+  for (const pod of S.pods.slice(0, 12)) {
+    let data = podMem.get(pod.id) || await idb.get('kv', 'pod:' + pod.id).catch(() => null);
+    if (navigator.onLine && (!data || now - data.at > 6 * 3600e3)) { try { data = await loadPodcast(pod.id, 6 * 3600e3); } catch {} }
+    if (!data) continue;
+    for (const e of data.eps.slice(0, 3)) {
+      if (!e.date || now - new Date(e.date) > 14 * 864e5 || S.played[e.id] || S.epos[e.id]) continue;
+      reg(S.saved[e.id] || S.dl[e.id] || e);
+      tiles.push({ when: new Date(e.date).getTime(), html: `<button class="card" data-act="play-new-ep" data-id="${esc(e.id)}">${safeUrl(pod.art) ? `<div class="art" style="background-image:url('${safeUrl(pod.art)}')"></div>` : artDiv(null, pod.name, '', 'mic')}<span class="badge">New</span><div class="card-title" translate="no">${esc(e.title)}</div><div class="card-sub" translate="no">${esc(pod.name)}</div></button>` });
+      break;   // one per show
+    }
+  }
+  for (const al of S.albums.values()) if (al.addedAt && now - al.addedAt < 14 * 864e5 && al.tracks.some(t => !isHidden(t)))
+    tiles.push({ when: al.addedAt, html: albumCard(al).replace('</a>', '<span class="badge">Added</span></a>') });
+  const up = S.upnext.filter(has);
+  if (up.length) tiles.push({ when: now, html: `<a class="card" href="#/online/podcasts"><div class="art mix-art" style="background:linear-gradient(135deg,#4361ee,#3a0ca3)">${ic('queue')}<b>${up.length}</b></div><div class="card-title" data-tr>Up next</div><div class="card-sub" data-tr>${up.length === 1 ? '1 episode waiting' : `${up.length} episodes waiting`}</div></a>` });
+  return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
+}
+
 /* ---------------- your year in music ---------------- */
 function yearData(y) {
   const from = new Date(y, 0, 1).getTime(), to = new Date(y + 1, 0, 1).getTime();
@@ -2592,7 +2656,7 @@ const page = () => location.hash.split('/')[1] || 'home';
 
 const VIEWS = {
   home() {
-    if (!S.tracks.size) return setView(emptyLib());
+    if (!S.tracks.size) { setView('<div id="news"></div>', emptyLib()); drawNews(location.hash); return; }
     const ts = [...shown()];
     const recent = ts.filter(t => t.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 8);
     const newest = [...S.albums.values()].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12);
@@ -2600,20 +2664,23 @@ const VIEWS = {
     const hr = new Date().getHours();
     viewIds = allSongIds();
     setView(
+      '<div id="news"></div>',
       `<h1>${hr < 5 ? 'Late night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}</h1>
        <div class="muted">${total(ts)} in your library</div>${heroActions(`<a class="btn" href="#/stats">${ic('chart')}Your stats</a>`).replace('Play<', 'Play all<')}`,
-      '<div id="mfy"></div>',
+      '<div id="mfy"></div>', '<div id="nfy"></div>',
       recent.length ? `<h2>Jump back in</h2><div class="tiles">${recent.map(t => `<button class="tile" data-act="play-recent" data-id="${t.id}">${artDiv(t.artId, t.album || t.title)}<span>${esc(t.title)}</span></button>`).join('')}</div>` : '',
       `<h2>Recently added</h2><div class="grid">${newest.map(albumCard).join('')}</div>`,
       top.length ? '<h2>Most played</h2>' : '', top.length ? trackList(top.map(t => t.id)) : null,
     );
     const here = location.hash;
+    drawNews(here);
+    newForYou().then(t => { const el = $('#nfy'); if (el && location.hash === here && t.length) el.innerHTML = `<h2>New for you</h2><div class="grid">${t.join('')}</div>`; }).catch(e => console.warn('new for you', e));
     dailyMixes().then(ms => {
       const el = $('#mfy'); if (!el || location.hash !== here) return;
-      const yr = new Date().getFullYear(), m = new Date().getMonth(), hasYear = S.hist.some(x => x.a >= new Date(m < 1 ? yr - 1 : yr, 0, 1).getTime());
-      const yearCard = hasYear ? `<a class="card" href="#/year"><div class="art mix-art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('chart')}<b>${m < 1 ? yr - 1 : yr}</b></div><div class="card-title">Your year in music</div><div class="card-sub">Your top songs and artists</div></a>` : '';
+      const yr = new Date().getFullYear(), m = new Date().getMonth(), hasYear = (m === 11 || m < 1 || S.hist.length) && S.hist.some(x => x.a >= new Date(m < 1 ? yr - 1 : yr, 0, 1).getTime());
+      const yearCard = hasYear ? `<a class="card" href="#/year"><div class="art mix-art" style="background:linear-gradient(135deg,var(--accent),#3a1530)">${ic('chart')}<b>${m < 1 ? yr - 1 : yr}</b></div><div class="card-title" data-tr>Your year in music</div><div class="card-sub" data-tr>Your top songs and artists</div></a>` : '';
       if (!ms.length && !yearCard) return;
-      el.innerHTML = `<h2>Made for you</h2><div class="grid">${ms.map((x, i) => `<a class="card" href="#/daily/${i}"><div class="art mix-art" style="background:linear-gradient(135deg,${MIX_BG[i]})">${ic('radio')}<b>${i + 1}</b></div><div class="card-title">Daily Mix ${i + 1}</div><div class="card-sub">${esc(mixSub(x))}</div></a>`).join('')}${yearCard}</div>`;
+      el.innerHTML = `<h2>Made for you</h2><div class="grid">${ms.map((x, i) => `<a class="card" href="#/daily/${i}"><div class="art mix-art" style="background:linear-gradient(135deg,${MIX_BG[i]})">${ic('radio')}<b>${i + 1}</b></div><div class="card-title" data-tr>Daily Mix ${i + 1}</div><div class="card-sub">${esc(mixSub(x))}</div></a>`).join('')}${yearCard}</div>`;
     });
   },
   async daily(i) {
@@ -2704,8 +2771,8 @@ const VIEWS = {
   },
   playlists() {
     setView(`<h1>Playlists</h1><div class="hero-actions" style="margin-bottom:16px"><button class="btn primary" data-act="new-playlist">${ic('plus')}New playlist</button><button class="btn" data-act="new-smart" aria-label="A playlist that fills itself from a rule">${ic('spark')}New smart playlist</button><button class="btn" data-act="import-pl" aria-label="Bring in a playlist from Spotify, another app or a list of songs">${ic('file')}Import playlist</button></div>`,
-      `<div class="grid"><a class="card" href="#/liked"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="card-title">Liked songs</div><div class="card-sub">${likedItems().length} songs</div></a>
-      ${Object.entries(MIXES).map(([k, m]) => `<a class="card" href="#/mix/${k}"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="card-title">${m.name}</div><div class="card-sub">Automatic</div></a>`).join('')}
+      `<div class="grid"><a class="card" href="#/liked"><div class="art" style="background:linear-gradient(135deg,#ff7a59,#b3246b)">${ic('heart')}</div><div class="card-title" data-tr>Liked songs</div><div class="card-sub" data-tr>${likedItems().length} songs</div></a>
+      ${Object.entries(MIXES).map(([k, m]) => `<a class="card" href="#/mix/${k}"><div class="art" style="background:linear-gradient(135deg,${m.bg})">${ic(m.icon)}</div><div class="card-title" data-tr>${m.name}</div><div class="card-sub" data-tr>Automatic</div></a>`).join('')}
       ${S.playlists.map(p => { const first = T(playlistIds(p)[0]); return `<a class="card" href="#/playlist/${p.id}">${artDiv(first?.artId, p.name, '', 'list')}<div class="card-title">${esc(p.name)}</div><div class="card-sub">${playlistIds(p).length} songs</div></a>`; }).join('')}</div>`);
   },
   playlist(id) {
@@ -3094,6 +3161,8 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'news-dismiss': el => dismissNews(el.dataset.id),
+  'play-new-ep': el => { const ids = $$('#nfy [data-act=play-new-ep]').map(x => x.dataset.id); playContext(ids, Math.max(0, ids.indexOf(el.dataset.id))); },
   'save-daily': async el => {
     const i = +el.dataset.i, m = (await dailyMixes())[i]; if (!m) return;
     const name = `Daily Mix ${i + 1} · ${new Date().toLocaleDateString(LANG, { day: 'numeric', month: 'short' })}`;
@@ -3245,6 +3314,7 @@ document.addEventListener('click', e => {
   lastPointer = { clientX: e.clientX, clientY: e.clientY };   // menus opened by this action appear where it was clicked
   A[el.dataset.act]?.(el, e);
 });
+document.addEventListener('click', e => { const b = e.target.closest('[data-news]'); if (b) setTimeout(() => dismissNews(b.dataset.news), 50); });
 document.addEventListener('contextmenu', e => {
   const row = e.target.closest('.row'); if (!row || !row.closest('.tracklist')) return;
   e.preventDefault();

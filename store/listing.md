@@ -63,7 +63,7 @@ Seylumi plays music files you already have. It does not download or provide copy
 
 - **App icon (512 × 512):** `../icons/icon-512.png`
 - **Feature graphic (1024 × 500):** `feature-graphic.png`
-- **Phone screenshots (1080 × 1920):** `1-home.png`, `2-now-playing.png`, `3-albums.png`, `4-radio.png`, `5-free-music.png`, `6-equalizer.png`, `7-stats.png`
+- **Phone screenshots (1080 × 1920), upload in this order:** `1-home.png`, `2-now-playing.png`, `3-daily-mix.png`, `4-albums.png`, `5-year-in-music.png`, `6-radio.png`, `7-playlists.png`, `8-equalizer.png`
 
 ## Answers for the Play Console questionnaires
 

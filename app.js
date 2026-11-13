@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 43;
+const APP_VERSION = 44;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
@@ -142,6 +142,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 44, date: '2026-11-13', notes: ['New store pictures'] },
   { v: 43, date: '2026-11-12', notes: ['Ready for the Google Play version'] },
   { v: 42, date: '2026-11-12', notes: ['Automatic backups: a weekly reminder, or on a computer a backup saved into a folder of your choice every week (Settings → Back up and transfer)'] },
   { v: 41, date: '2026-11-12', notes: ['Podcasts: Up next list (⋯ → Add to Up next), shown at the top of Podcasts', 'Mark episodes as played; finished episodes are marked by themselves', 'Auto-download: new episodes of a show you follow download by themselves while Seylumi is open'] },

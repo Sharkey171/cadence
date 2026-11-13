@@ -38,7 +38,7 @@
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Home"
+      "label": "Home with your Daily Mixes"
     },
     {
       "src": "store/2-now-playing.png",
@@ -48,21 +48,28 @@
       "label": "Now playing"
     },
     {
-      "src": "store/3-albums.png",
+      "src": "store/3-daily-mix.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "A Daily Mix made from your music"
+    },
+    {
+      "src": "store/4-albums.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Your albums"
     },
     {
-      "src": "store/4-radio.png",
+      "src": "store/5-year-in-music.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Internet radio"
+      "label": "Your year in music"
     },
     {
-      "src": "store/6-equalizer.png",
+      "src": "store/8-equalizer.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",

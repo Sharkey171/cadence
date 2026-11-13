@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 48;
+const APP_VERSION = 49;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
@@ -143,6 +143,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 49, date: '2026-11-13', notes: ['Linked music folders: no more hunting for the Reconnect button. Tap anything (like a song) and choose Allow, and it plays straight away'] },
   { v: 47, date: '2026-11-13', notes: ['Fixed: Song radio from the Now Playing menu could close Seylumi or jump to the welcome page'] },
   { v: 46, date: '2026-11-13', notes: ['A launch animation: a little dancer with five random moves (groove, moonwalk, disco, robot and spin). Tap to skip, or switch it off in Settings → Appearance'] },
   { v: 45, date: '2026-11-13', notes: ['New for you on Home: new podcast episodes, albums you just added and your Up next list', 'News from Seylumi appears as a small card on Home, which you can dismiss'] },
@@ -639,15 +640,40 @@ async function addFolder() {
   S.folders.push(folder); await saveFolders();
   await scanFolder(folder);
 }
+// Phones ask for folder permission again each time the app opens. Rather than making people find a button,
+// the first tap anywhere asks for every linked folder at once, and the song they tapped then plays.
+let needPerm = false, permAsking = false, permDeclined = false, retryAfterPerm = false;
+async function askFoldersOnTap(e) {
+  if (!needPerm || permAsking || permDeclined || !S.folders.length || e.target.closest?.('[data-act=reconnect]')) return;
+  permAsking = true; let refused = false;
+  try {
+    for (const f of S.folders) {
+      if (await f.handle.queryPermission({ mode: 'read' }) === 'granted') continue;
+      try { if (await f.handle.requestPermission({ mode: 'read' }) !== 'granted') { refused = true; break; } }
+      catch (err) { if (err?.name !== 'SecurityError') refused = true; break; }   // SecurityError: the tap expired; the next tap asks again
+    }
+  } finally { permAsking = false; }
+  if (refused) { permDeclined = true; return; }   // don't ask on every tap; the Reconnect button still works
+  await new Promise(r => setTimeout(r, 0));   // let the tapped song's first try finish, so it is retried below
+  const retry = retryAfterPerm;
+  if (await checkFolderAccess()) {
+    toast('Music folder reconnected');
+    resumePending();
+    if (retry && current()?.linked && !playing()) loadCurrent(true);
+  }
+}
+document.addEventListener('click', askFoldersOnTap, true);
 async function checkFolderAccess() {
   if (importing || tagging) return;
   for (const f of S.folders) {
     if (await f.handle.queryPermission({ mode: 'read' }) !== 'granted') {
+      needPerm = true;
       const unfinished = S.folders.some(x => x.pending);
-      setBanner(`<span style="flex:1">${unfinished ? 'Reconnect your music folder to carry on adding your music.' : 'Your linked music folder needs permission again to play.'} Choose “Allow on every visit” if your browser offers it, and you won't be asked again.</span><button class="btn primary" data-act="reconnect">Reconnect</button>`);
+      setBanner(`<span style="flex:1">${unfinished ? 'Reconnect your music folder to carry on adding your music.' : 'Your linked music folder needs permission again to play.'} Tap anywhere and choose Allow. If your phone offers “Allow on every visit”, choose that and you won't be asked again.</span><button class="btn primary" data-act="reconnect">Reconnect</button>`);
       return false;
     }
   }
+  needPerm = false; retryAfterPerm = false;
   if ($('#banner [data-act=reconnect]')) setBanner('');
   return true;
 }
@@ -901,7 +927,7 @@ async function loadCurrent(autoplay = true, startAt = 0, fade = 0) {
   } catch (e) {
     if (el) { clearInterval(el._ramp); el._ramp = null; el._fade = 1; applyVol(el); }
     if (token !== loadToken || e?.name === 'AbortError') return;
-    if (e?.name === 'NotAllowedError') { toast(t.linked ? 'Reconnect your music folder to play' : 'Tap play to start'); syncPlayer(); return; }
+    if (e?.name === 'NotAllowedError') { if (t.linked) retryAfterPerm = true; if (!(t.linked && (permAsking || needPerm && !permDeclined))) toast(t.linked ? 'Reconnect your music folder to play' : 'Tap play to start'); syncPlayer(); return; }
     playbackFailed(t);
   }
 }
@@ -3294,8 +3320,10 @@ const A = {
   'bk-mode': el => { const v = el.dataset.v; if (v === 'folder') return chooseBkFolder(); BK.mode = v; saveBk(); rerender(); },
   'import-backup': () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.json,application/json'; i.onchange = () => i.files[0] && importBackup(i.files[0]); i.click(); },
   'reconnect': async () => {
+    permDeclined = false;
     for (const f of S.folders) { try { await f.handle.requestPermission({ mode: 'read' }); } catch {} }
-    if (await checkFolderAccess()) { toast('Folder reconnected'); resumePending(); }
+    const retry = retryAfterPerm;
+    if (await checkFolderAccess()) { toast('Folder reconnected'); resumePending(); if (retry && current()?.linked && !playing()) loadCurrent(true); }
   },
   'rescan': async el => {
     const f = S.folders.find(x => x.id === el.dataset.id); if (!f) return;

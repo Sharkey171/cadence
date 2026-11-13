@@ -133,15 +133,17 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 45;
+const APP_VERSION = 46;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
+const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
   feedback: 'https://forms.gle/UmuvHsttwDFQGoYAA',   // Google Form for "Send feedback" (button hidden when empty)
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 46, date: '2026-11-13', notes: ['A launch animation: a little dancer with five random moves (groove, moonwalk, disco, robot and spin). Tap to skip, or switch it off in Settings → Appearance'] },
   { v: 45, date: '2026-11-13', notes: ['New for you on Home: new podcast episodes, albums you just added and your Up next list', 'News from Seylumi appears as a small card on Home, which you can dismiss'] },
   { v: 44, date: '2026-11-13', notes: ['New store pictures'] },
   { v: 43, date: '2026-11-12', notes: ['Ready for the Google Play version'] },
@@ -2898,6 +2900,7 @@ const VIEWS = {
         <div class="themes">${Object.entries(THEMES).map(([k, t]) => `<button class="theme-card ${S.theme.mode === k ? 'on' : ''}" data-act="theme-mode" data-mode="${k}" aria-label="${t.name} theme"><span class="theme-prev" style="background:${t.bg}"><i style="background:${t.panel}"></i><i style="background:${t.raised}"></i><b style="background:${t.accent}"></b></span><span>${t.name}</span></button>`).join('')}</div>
         <h2 style="margin-top:20px">Accent colour</h2>
         <h2 style="margin-top:20px">Text size</h2><div class="chips">${[['', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([k, l]) => `<button class="chip ${(S.theme.text || '') === k ? 'active' : ''}" data-act="text-size" data-v="${k}">${l}</button>`).join('')}</div>
+        <h2 style="margin-top:20px">Launch animation</h2><p class="muted" style="margin:-4px 0 8px">A little dance while Seylumi starts.</p><div class="chips">${[['on', 'On'], ['off', 'Off']].map(([k, l]) => `<button class="chip ${(launchPref() === k) ? 'active' : ''}" data-act="launch-pref" data-v="${k}">${l}</button>`).join('')}<button class="chip" data-act="launch-show">${ic('play')}Show it</button></div>
         <h2 style="margin-top:20px">Now Playing animation</h2><div class="chips">${VIZ.map(([k, l]) => `<button class="chip ${S.fx.viz === k ? 'active' : ''}" data-act="set-viz" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
@@ -3161,6 +3164,8 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'launch-pref': el => { try { localStorage.setItem('cadence-launch', el.dataset.v); } catch {} rerender(); },
+  'launch-show': () => { try { sessionStorage.removeItem('cadence-launched'); localStorage.removeItem('cadence-launch'); } catch {} location.reload(); },
   'news-dismiss': el => dismissNews(el.dataset.id),
   'play-new-ep': el => { const ids = $$('#nfy [data-act=play-new-ep]').map(x => x.dataset.id); playContext(ids, Math.max(0, ids.indexOf(el.dataset.id))); },
   'save-daily': async el => {

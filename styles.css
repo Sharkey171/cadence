@@ -477,3 +477,106 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .news-btn { margin-top: 10px; display: inline-flex; }
 .news-x { flex: none; margin: -6px 0 0; }
 #nfy .card { position: relative; text-align: left; font: inherit; color: inherit; border: 0; cursor: pointer; }
+
+/* ---------- launch animation (from launch-preview.html) ---------- */
+/* ---------- the launch screen ---------- */
+  #launch { --a1: #ff7a59; --a2: #d9467a; position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: var(--bg); }
+  #launch.out { animation: ln-out .35s ease-in forwards; }
+  @keyframes ln-out { to { opacity: 0; transform: scale(1.04); } }
+
+  #launch .stage { position: relative; width: 240px; height: 278px; }
+  #launch .icon { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 24px; background: linear-gradient(135deg, var(--a1), var(--a2)); display: flex; align-items: center; justify-content: center;
+    animation: ln-iconIn .45s cubic-bezier(.2,1.4,.4,1) both, ln-iconAway .35s ease-in .55s forwards; }
+  #launch .icon i { display: inline-block; width: 7px; margin: 0 3px; border-radius: 4px; background: #fff; animation: ln-eq .5s ease-in-out infinite alternate; }
+  #launch .icon i:nth-child(1) { height: 18px; } #launch .icon i:nth-child(2) { height: 40px; animation-delay: -.2s; } #launch .icon i:nth-child(3) { height: 54px; animation-delay: -.35s; } #launch .icon i:nth-child(4) { height: 30px; animation-delay: -.1s; } #launch .icon i:nth-child(5) { height: 16px; animation-delay: -.3s; }
+  @keyframes ln-eq { to { transform: scaleY(.45); } }
+  @keyframes ln-iconIn { from { transform: scale(.4); opacity: 0; } }
+  @keyframes ln-iconAway { to { transform: translateY(-30px) scale(.3); opacity: 0; } }
+
+  #launch .dancer { position: absolute; inset: 0; opacity: 0; animation: ln-dancerIn .4s ease-out .6s forwards; }
+  @keyframes ln-dancerIn { from { opacity: 0; transform: translateY(14px) scale(.9); } to { opacity: 1; transform: none; } }
+  #launch .dancer svg { width: 100%; height: 100%; overflow: visible; }
+  #launch .bounce { animation: ln-bounce .5s ease-in-out infinite; transform-origin: 95px 190px; }
+  @keyframes ln-bounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-9px) rotate(4deg); } }
+  #launch .head { animation: ln-bob .5s ease-in-out infinite; transform-origin: 95px 92px; }
+  @keyframes ln-bob { 0%, 100% { transform: rotate(8deg); } 50% { transform: rotate(-8deg); } }
+  #launch .armL { animation: ln-armL .5s ease-in-out infinite; transform-origin: 71px 108px; }
+  #launch .armR { animation: ln-armR .5s ease-in-out infinite; transform-origin: 119px 108px; }
+  @keyframes ln-armL { 0%, 100% { transform: rotate(10deg); } 50% { transform: rotate(85deg); } }
+  @keyframes ln-armR { 0%, 100% { transform: rotate(-85deg); } 50% { transform: rotate(-10deg); } }
+  #launch .legL { animation: ln-legL .5s ease-in-out infinite; transform-origin: 85px 150px; }
+  #launch .legR { animation: ln-legR .5s ease-in-out infinite; transform-origin: 105px 150px; }
+  @keyframes ln-legL { 0%, 100% { transform: rotate(14deg); } 50% { transform: rotate(-4deg); } }
+  @keyframes ln-legR { 0%, 100% { transform: rotate(4deg); } 50% { transform: rotate(-14deg); } }
+  #launch .shadow { animation: ln-shadow .5s ease-in-out infinite; transform-origin: 95px 200px; }
+  @keyframes ln-shadow { 50% { transform: scaleX(.8); opacity: .5; } }
+
+  #launch .note { position: absolute; font-size: 22px; color: var(--a1); opacity: 0; animation: ln-note 1.6s ease-out infinite; }
+  #launch .note.n1 { left: 18px; top: 70px; animation-delay: .8s; } #launch .note.n2 { right: 14px; top: 50px; animation-delay: 1.2s; color: var(--a2); } #launch .note.n3 { right: 34px; top: 110px; animation-delay: 1.6s; font-size: 17px; }
+  @keyframes ln-note { 0% { opacity: 0; transform: translateY(10px) rotate(-10deg); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-50px) rotate(15deg); } }
+
+  #launch .word { font-size: 40px; font-weight: 800; letter-spacing: -1px; opacity: 0; animation: ln-up .45s ease-out .85s forwards; }
+  #launch .word b { background: linear-gradient(90deg, var(--a1), var(--a2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #launch .slogan { font-size: 18px; color: var(--muted); opacity: 0; animation: ln-up .45s ease-out 1.1s forwards; }
+  @keyframes ln-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  #launch .skip { display: none; position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); opacity: .6; }
+
+  /* ---------- moonwalk: faces right, glides backwards (left) while the feet seem to walk forwards ---------- */
+  #launch.mw .bounce { animation: ln-glide 1.8s linear infinite; transform-origin: 95px 190px; }
+  @keyframes ln-glide { from { transform: translateX(55px) rotate(-5deg); } to { transform: translateX(-55px) rotate(-5deg); } }
+  #launch.mw .face { transform: translateX(7px); }
+  #launch.mw .head { animation: ln-nod .4s ease-in-out infinite; }
+  @keyframes ln-nod { 0%, 100% { transform: rotate(4deg); } 50% { transform: rotate(-3deg) translateY(2px); } }
+  #launch.mw .armL { animation: ln-mwArmL .8s ease-in-out infinite alternate; }
+  #launch.mw .armR { animation: ln-mwArmR .8s ease-in-out infinite alternate; }
+  @keyframes ln-mwArmL { from { transform: rotate(-20deg); } to { transform: rotate(-38deg); } }
+  @keyframes ln-mwArmR { from { transform: rotate(38deg); } to { transform: rotate(20deg); } }
+  /* each leg: slides back flat on the floor, then lifts its heel (ln-knee bent) and swaps */
+  #launch.mw .legL, #launch.mw .legR { animation: ln-mwLeg .8s linear infinite; }
+  #launch.mw .legR { animation-delay: -.4s; }
+  @keyframes ln-mwLeg { 0% { transform: rotate(-12deg) scaleY(1); } 48% { transform: rotate(14deg) scaleY(1); } 52% { transform: rotate(14deg) scaleY(.88); } 100% { transform: rotate(-12deg) scaleY(.88); } }
+  #launch.mw .foot { transform-box: fill-box; transform-origin: 85% 60%; animation: ln-mwFoot .8s linear infinite; translate: 6px 0; }
+  #launch.mw .legL { translate: 5px 0; } #launch.mw .legR { translate: -5px 0; }
+  #launch.mw .legR .foot { animation-delay: -.4s; }
+  @keyframes ln-mwFoot { 0%, 48% { transform: rotate(0); } 52%, 100% { transform: rotate(-28deg); } }
+  #launch.mw .shadow { animation: ln-glideShadow 1.8s linear infinite; }
+  @keyframes ln-glideShadow { from { transform: translateX(55px); } to { transform: translateX(-55px); } }
+  #launch.mw .note.n1 { left: auto; right: 10px; }
+
+  /* ---------- disco: ln-point ln-up to the sky, then down to the hip, hips swaying ---------- */
+  #launch.disco .bounce { animation: ln-sway .5s ease-in-out infinite; }
+  @keyframes ln-sway { 0%, 100% { transform: translateX(-5px) rotate(-6deg); } 50% { transform: translateX(5px) rotate(6deg); } }
+  #launch.disco .armR { animation: ln-point 1s ease-in-out infinite; }
+  @keyframes ln-point { 0%, 45% { transform: rotate(-95deg); } 55%, 100% { transform: rotate(25deg); } }
+  #launch.disco .armL { animation: none; transform: rotate(-25deg); }
+  #launch.disco .head { animation: ln-bob .5s ease-in-out infinite; }
+  #launch.disco .legL { animation: ln-knee .5s ease-in-out infinite; } #launch.disco .legR { animation: none; transform: rotate(-6deg); }
+  @keyframes ln-knee { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(18deg) scaleY(.9); } }
+
+  /* ---------- robot: stiff, jerky moves ---------- */
+  #launch.robot .bounce { animation: ln-robo 1s steps(1) infinite; }
+  @keyframes ln-robo { 0% { transform: translateY(0); } 25% { transform: translateY(-4px); } 50% { transform: translateY(0) translateX(4px); } 75% { transform: translateY(-4px) translateX(4px); } }
+  #launch.robot .head { animation: ln-roboHead 1s steps(1) infinite; }
+  @keyframes ln-roboHead { 0% { transform: rotate(0); } 25% { transform: rotate(12deg); } 50% { transform: rotate(0); } 75% { transform: rotate(-12deg); } }
+  #launch.robot .face { animation: ln-roboFace 1s steps(1) infinite; }
+  @keyframes ln-roboFace { 0%, 50% { transform: none; } 25% { transform: translateX(5px); } 75% { transform: translateX(-5px); } }
+  #launch.robot .armL { animation: ln-roboArmL 1s steps(1) infinite; } #launch.robot .armR { animation: ln-roboArmR 1s steps(1) infinite; }
+  @keyframes ln-roboArmL { 0% { transform: rotate(42deg); } 25% { transform: rotate(87deg); } 50% { transform: rotate(42deg); } 75% { transform: rotate(0deg); } }
+  @keyframes ln-roboArmR { 0% { transform: rotate(-87deg); } 25% { transform: rotate(-42deg); } 50% { transform: rotate(-42deg); } 75% { transform: rotate(-87deg); } }
+  #launch.robot .legL, #launch.robot .legR { animation: none; }
+
+  /* ---------- spin: a little jump and a full ln-twirl, then groove ---------- */
+  #launch.spin .bounce { animation: ln-twirl 1.2s ease-in-out infinite; }
+  @keyframes ln-twirl { 0% { transform: translateY(0) scaleX(1); } 15% { transform: translateY(-22px) scaleX(.2); } 30% { transform: translateY(-26px) scaleX(-1); } 45% { transform: translateY(-14px) scaleX(.2); } 60% { transform: translateY(0) scaleX(1); } 70% { transform: translateY(-6px) rotate(-4deg); } 85% { transform: translateY(0) rotate(4deg); } 100% { transform: translateY(0) scaleX(1); } }
+  #launch.spin .armL { animation: none; transform: rotate(80deg); } #launch.spin .armR { animation: none; transform: rotate(-80deg); }
+  #launch.spin .shadow { animation: ln-spinShadow 1.2s ease-in-out infinite; }
+  @keyframes ln-spinShadow { 15%, 45% { transform: scaleX(.6); opacity: .3; } 60%, 100% { transform: none; } }
+
+  /* people who switch off motion in their phone settings: no dancing, just a gentle ln-fade */
+  #launch.calm .icon, #launch.calm .icon i, #launch.calm .bounce, #launch.calm .foot, #launch.calm .face, #launch.calm .head, #launch.calm .armL, #launch.calm .armR, #launch.calm .legL, #launch.calm .legR, #launch.calm .shadow, #launch.calm .note { animation: none !important; }
+  #launch.calm .icon { opacity: 0; } #launch.calm .note { display: none; }
+  #launch.calm .dancer, #launch.calm .word, #launch.calm .slogan { animation: ln-fade .5s ease-out forwards !important; }
+  @keyframes ln-fade { from { opacity: 0; } to { opacity: 1; } }
+
+  
+#launch[hidden] { display: none; }

@@ -21,9 +21,69 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=45">
+<link rel="stylesheet" href="styles.css?v=46">
 </head>
 <body>
+<div id="launch" hidden aria-hidden="true">
+  <div class="stage">
+    <div class="icon" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="dancer" aria-hidden="true">
+      <svg viewBox="0 0 190 220">
+        <defs>
+          <linearGradient id="lng" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7a59"/><stop offset="1" stop-color="#d9467a"/></linearGradient>
+        </defs>
+        <ellipse class="shadow" cx="95" cy="203" rx="34" ry="6" fill="#000" opacity=".45"/>
+        <g class="bounce">
+          <!-- legs -->
+          <g class="legL"><path d="M85 150 L78 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="74" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
+          <g class="legR"><path d="M105 150 L112 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="116" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
+          <!-- body -->
+          <rect x="70" y="98" width="50" height="60" rx="22" fill="url(#lng)"/>
+          <path d="M84 118 v18 M95 112 v30 M106 120 v14" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".9"/>
+          <!-- arms, in front of the body so they never disappear -->
+          <g class="armL"><path d="M71 108 L49 128" stroke="#e8577a" stroke-width="11" stroke-linecap="round"/><circle cx="47" cy="130" r="7" fill="#f3f1ee"/></g>
+          <g class="armR"><path d="M119 108 L141 128" stroke="#ff7a59" stroke-width="11" stroke-linecap="round"/><circle cx="143" cy="130" r="7" fill="#f3f1ee"/></g>
+          <!-- head with headphones -->
+          <g class="head">
+            <circle cx="95" cy="66" r="28" fill="#f3f1ee"/>
+            <g class="face"><path d="M84 64 q4 -5 8 0 M98 64 q4 -5 8 0" stroke="#2f2f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <path d="M86 75 q9 9 18 0" stroke="#2f2f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <circle cx="80" cy="74" r="4" fill="#ff7a59" opacity=".35"/><circle cx="110" cy="74" r="4" fill="#ff7a59" opacity=".35"/></g>
+            <path d="M64 66 a31 33 0 0 1 62 0" stroke="#2f2f3c" stroke-width="7" fill="none" stroke-linecap="round"/>
+            <rect x="58" y="58" width="14" height="22" rx="6" fill="url(#lng)"/>
+            <rect x="118" y="58" width="14" height="22" rx="6" fill="url(#lng)"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <span class="note n1">♪</span><span class="note n2">♫</span><span class="note n3">♪</span>
+  </div>
+  <div class="word"><b>Seylumi</b></div>
+  <div class="slogan"></div>
+  <div class="skip"></div>
+</div>
+<script>
+/* Launch animation: a random little dance while Seylumi starts. Plays on a fresh start only, about 1.5 s,
+   tap to skip; switch off in Settings > Appearance. Hidden once the app is ready (or after 4 s at most). */
+(function () {
+  var el = document.getElementById('launch'), ls = function (k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+  var again = false; try { again = sessionStorage.getItem('cadence-launched') === '1'; sessionStorage.setItem('cadence-launched', '1'); } catch (e) {}
+  if (ls('cadence-launch') === 'off' || again || /[?&]nolaunch/.test(location.search)) { el.remove(); return; }
+  var calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var dances = ['', 'mw', 'disco', 'robot', 'spin'], last = ls('cadence-dance-last');
+  var pick = dances.filter(function (d) { return d !== last; }); pick = pick[Math.floor(Math.random() * pick.length)];
+  ls('cadence-dance-last', pick);
+  el.className = calm ? 'calm' : pick; el.hidden = false; el.dataset.dance = pick || 'groove';
+  var S = { en: 'Your music, your way', ga: 'Do cheol, do bhealach', es: 'Tu música, a tu manera', fr: 'Votre musique, à votre façon', de: 'Deine Musik, dein Weg', pl: 'Twoja muzyka, po twojemu', pt: 'A sua música, à sua maneira', it: 'La tua musica, a modo tuo', nl: 'Jouw muziek, jouw manier' };
+  var lang = ls('cadence-lang'); if (!S[lang]) lang = ((navigator.languages || [navigator.language || 'en'])[0] || 'en').slice(0, 2).toLowerCase();
+  el.querySelector('.slogan').textContent = S[lang] || S.en;
+  var t0 = Date.now(), done = false;
+  function hide() { if (done) return; done = true; el.classList.add('out'); setTimeout(function () { el.remove(); }, 360); }
+  function check() { if (done) return; if (document.documentElement.dataset.ready && Date.now() - t0 >= 1500) hide(); else if (Date.now() - t0 > 4000) hide(); else setTimeout(check, 100); }
+  el.addEventListener('click', hide); el.addEventListener('touchstart', hide, { passive: true });
+  setTimeout(check, 1500);
+})();
+</script>
 <div id="app">
   <aside id="sidebar">
     <div class="brand"><img src="icons/icon-192.png" alt=""><span>Seylumi</span></div>
@@ -235,7 +295,7 @@
 <input type="file" id="pl-input" multiple accept=".csv,.tsv,.m3u,.m3u8,.pls,.txt,text/csv,audio/x-mpegurl,audio/mpegurl,audio/x-scpls,text/plain" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=45"></script>
+<script type="module" src="app.js?v=46"></script>
 <script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {

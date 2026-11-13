@@ -31,10 +31,10 @@
   @keyframes bounce { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-9px) rotate(4deg); } }
   .head { animation: bob .5s ease-in-out infinite; transform-origin: 95px 92px; }
   @keyframes bob { 0%, 100% { transform: rotate(8deg); } 50% { transform: rotate(-8deg); } }
-  .armL { animation: armL .5s ease-in-out infinite; transform-origin: 74px 108px; }
-  .armR { animation: armR .5s ease-in-out infinite; transform-origin: 116px 108px; }
-  @keyframes armL { 0%, 100% { transform: rotate(20deg); } 50% { transform: rotate(-110deg); } }
-  @keyframes armR { 0%, 100% { transform: rotate(110deg); } 50% { transform: rotate(-20deg); } }
+  .armL { animation: armL .5s ease-in-out infinite; transform-origin: 71px 108px; }
+  .armR { animation: armR .5s ease-in-out infinite; transform-origin: 119px 108px; }
+  @keyframes armL { 0%, 100% { transform: rotate(10deg); } 50% { transform: rotate(85deg); } }
+  @keyframes armR { 0%, 100% { transform: rotate(-85deg); } 50% { transform: rotate(-10deg); } }
   .legL { animation: legL .5s ease-in-out infinite; transform-origin: 85px 150px; }
   .legR { animation: legR .5s ease-in-out infinite; transform-origin: 105px 150px; }
   @keyframes legL { 0%, 100% { transform: rotate(14deg); } 50% { transform: rotate(-4deg); } }
@@ -60,8 +60,8 @@
   @keyframes nod { 0%, 100% { transform: rotate(4deg); } 50% { transform: rotate(-3deg) translateY(2px); } }
   .mw .armL { animation: mwArmL .8s ease-in-out infinite alternate; }
   .mw .armR { animation: mwArmR .8s ease-in-out infinite alternate; }
-  @keyframes mwArmL { from { transform: rotate(-38deg); } to { transform: rotate(-58deg); } }
-  @keyframes mwArmR { from { transform: rotate(58deg); } to { transform: rotate(38deg); } }
+  @keyframes mwArmL { from { transform: rotate(-20deg); } to { transform: rotate(-38deg); } }
+  @keyframes mwArmR { from { transform: rotate(38deg); } to { transform: rotate(20deg); } }
   /* each leg: slides back flat on the floor, then lifts its heel (knee bent) and swaps */
   .mw .legL, .mw .legR { animation: mwLeg .8s linear infinite; }
   .mw .legR { animation-delay: -.4s; }
@@ -78,8 +78,8 @@
   .disco .bounce { animation: sway .5s ease-in-out infinite; }
   @keyframes sway { 0%, 100% { transform: translateX(-5px) rotate(-6deg); } 50% { transform: translateX(5px) rotate(6deg); } }
   .disco .armR { animation: point 1s ease-in-out infinite; }
-  @keyframes point { 0%, 45% { transform: rotate(-125deg); } 55%, 100% { transform: rotate(35deg); } }
-  .disco .armL { animation: none; transform: rotate(-70deg); }
+  @keyframes point { 0%, 45% { transform: rotate(-95deg); } 55%, 100% { transform: rotate(25deg); } }
+  .disco .armL { animation: none; transform: rotate(-25deg); }
   .disco .head { animation: bob .5s ease-in-out infinite; }
   .disco .legL { animation: knee .5s ease-in-out infinite; } .disco .legR { animation: none; transform: rotate(-6deg); }
   @keyframes knee { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(18deg) scaleY(.9); } }
@@ -99,7 +99,7 @@
   /* ---------- spin: a little jump and a full twirl, then groove ---------- */
   .spin .bounce { animation: twirl 1.2s ease-in-out infinite; }
   @keyframes twirl { 0% { transform: translateY(0) scaleX(1); } 15% { transform: translateY(-22px) scaleX(.2); } 30% { transform: translateY(-26px) scaleX(-1); } 45% { transform: translateY(-14px) scaleX(.2); } 60% { transform: translateY(0) scaleX(1); } 70% { transform: translateY(-6px) rotate(-4deg); } 85% { transform: translateY(0) rotate(4deg); } 100% { transform: translateY(0) scaleX(1); } }
-  .spin .armL { animation: none; transform: rotate(-120deg); } .spin .armR { animation: none; transform: rotate(120deg); }
+  .spin .armL { animation: none; transform: rotate(80deg); } .spin .armR { animation: none; transform: rotate(-80deg); }
   .spin .shadow { animation: spinShadow 1.2s ease-in-out infinite; }
   @keyframes spinShadow { 15%, 45% { transform: scaleX(.6); opacity: .3; } 60%, 100% { transform: none; } }
 
@@ -142,12 +142,12 @@
           <!-- legs -->
           <g class="legL"><path d="M85 150 L78 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="74" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
           <g class="legR"><path d="M105 150 L112 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="116" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
-          <!-- arms -->
-          <g class="armL"><path d="M74 108 L52 128" stroke="url(#g)" stroke-width="11" stroke-linecap="round"/><circle cx="50" cy="130" r="7" fill="#f3f1ee"/></g>
-          <g class="armR"><path d="M116 108 L138 128" stroke="url(#g)" stroke-width="11" stroke-linecap="round"/><circle cx="140" cy="130" r="7" fill="#f3f1ee"/></g>
           <!-- body -->
           <rect x="70" y="98" width="50" height="60" rx="22" fill="url(#g)"/>
           <path d="M84 118 v18 M95 112 v30 M106 120 v14" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".9"/>
+          <!-- arms, in front of the body so they never disappear -->
+          <g class="armL"><path d="M71 108 L49 128" stroke="#e8577a" stroke-width="11" stroke-linecap="round"/><circle cx="47" cy="130" r="7" fill="#f3f1ee"/></g>
+          <g class="armR"><path d="M119 108 L141 128" stroke="#ff7a59" stroke-width="11" stroke-linecap="round"/><circle cx="143" cy="130" r="7" fill="#f3f1ee"/></g>
           <!-- head with headphones -->
           <g class="head">
             <circle cx="95" cy="66" r="28" fill="#f3f1ee"/>

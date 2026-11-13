@@ -18,7 +18,7 @@ Play your own music offline, plus free radio, podcasts and free music.
 
 ## Full description
 
-Seylumi is a music player for the songs you already own. Add the music files stored on your phone and play them anywhere, with no internet connection, no account and no subscription.
+Seylumi™ is a music player for the songs you already own. Add the music files stored on your phone and play them anywhere, with no internet connection, no account and no subscription.
 
 YOUR MUSIC, OFFLINE
 • Plays MP3, M4A/AAC, FLAC, WAV, OGG and Opus files

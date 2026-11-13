@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 47;
+const APP_VERSION = 48;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
@@ -2905,7 +2905,7 @@ const VIEWS = {
         <h2 style="margin-top:20px">Now Playing animation</h2><div class="chips">${VIZ.map(([k, l]) => `<button class="chip ${S.fx.viz === k ? 'active' : ''}" data-act="set-viz" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
-      `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p>
+      `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p><p class="muted" style="font-size:13px;margin-top:-4px">Seylumi™ is a trademark.</p>
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate && !IN_STORE_APP ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}

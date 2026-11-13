@@ -74,6 +74,35 @@
   @keyframes glideShadow { from { transform: translateX(55px); } to { transform: translateX(-55px); } }
   .mw .note.n1 { left: auto; right: 10px; }
 
+  /* ---------- disco: point up to the sky, then down to the hip, hips swaying ---------- */
+  .disco .bounce { animation: sway .5s ease-in-out infinite; }
+  @keyframes sway { 0%, 100% { transform: translateX(-5px) rotate(-6deg); } 50% { transform: translateX(5px) rotate(6deg); } }
+  .disco .armR { animation: point 1s ease-in-out infinite; }
+  @keyframes point { 0%, 45% { transform: rotate(-125deg); } 55%, 100% { transform: rotate(35deg); } }
+  .disco .armL { animation: none; transform: rotate(-70deg); }
+  .disco .head { animation: bob .5s ease-in-out infinite; }
+  .disco .legL { animation: knee .5s ease-in-out infinite; } .disco .legR { animation: none; transform: rotate(-6deg); }
+  @keyframes knee { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(18deg) scaleY(.9); } }
+
+  /* ---------- robot: stiff, jerky moves ---------- */
+  .robot .bounce { animation: robo 1s steps(1) infinite; }
+  @keyframes robo { 0% { transform: translateY(0); } 25% { transform: translateY(-4px); } 50% { transform: translateY(0) translateX(4px); } 75% { transform: translateY(-4px) translateX(4px); } }
+  .robot .head { animation: roboHead 1s steps(1) infinite; }
+  @keyframes roboHead { 0% { transform: rotate(0); } 25% { transform: rotate(12deg); } 50% { transform: rotate(0); } 75% { transform: rotate(-12deg); } }
+  .robot .face { animation: roboFace 1s steps(1) infinite; }
+  @keyframes roboFace { 0%, 50% { transform: none; } 25% { transform: translateX(5px); } 75% { transform: translateX(-5px); } }
+  .robot .armL { animation: roboArmL 1s steps(1) infinite; } .robot .armR { animation: roboArmR 1s steps(1) infinite; }
+  @keyframes roboArmL { 0% { transform: rotate(42deg); } 25% { transform: rotate(87deg); } 50% { transform: rotate(42deg); } 75% { transform: rotate(0deg); } }
+  @keyframes roboArmR { 0% { transform: rotate(-87deg); } 25% { transform: rotate(-42deg); } 50% { transform: rotate(-42deg); } 75% { transform: rotate(-87deg); } }
+  .robot .legL, .robot .legR { animation: none; }
+
+  /* ---------- spin: a little jump and a full twirl, then groove ---------- */
+  .spin .bounce { animation: twirl 1.2s ease-in-out infinite; }
+  @keyframes twirl { 0% { transform: translateY(0) scaleX(1); } 15% { transform: translateY(-22px) scaleX(.2); } 30% { transform: translateY(-26px) scaleX(-1); } 45% { transform: translateY(-14px) scaleX(.2); } 60% { transform: translateY(0) scaleX(1); } 70% { transform: translateY(-6px) rotate(-4deg); } 85% { transform: translateY(0) rotate(4deg); } 100% { transform: translateY(0) scaleX(1); } }
+  .spin .armL { animation: none; transform: rotate(-120deg); } .spin .armR { animation: none; transform: rotate(120deg); }
+  .spin .shadow { animation: spinShadow 1.2s ease-in-out infinite; }
+  @keyframes spinShadow { 15%, 45% { transform: scaleX(.6); opacity: .3; } 60%, 100% { transform: none; } }
+
   /* people who switch off motion in their phone settings: no dancing, just a gentle fade */
   .calm .icon, .calm .icon i, .calm .bounce, .calm .foot, .calm .face, .calm .head, .calm .armL, .calm .armR, .calm .legL, .calm .legR, .calm .shadow, .calm .note { animation: none !important; }
   .calm .icon { opacity: 0; } .calm .note { display: none; }
@@ -91,10 +120,11 @@
 <div id="launch"></div>
 
 <div id="controls">
-  <p>Preview only. In the app it plays once while Seylumi loads (about 1.5 s), then fades into the app. Tap the animation to skip.</p>
+  <p id="now" style="font-weight:700;color:var(--text)"></p>
+  <p>Preview only. In the app it plays once while Seylumi loads (about 1.5 s), then fades into the app. A different dance each time. Tap the animation to skip.</p>
   <button id="replay" class="on">▶ Replay</button>
   <button id="loop">Loop: off</button>
-  <button id="dance" class="on">Dance: moonwalk</button>
+  <button id="dance" class="on">Dance: random</button>
   <button id="lang">Gaeilge</button>
   <button id="calm">Reduced motion: off</button>
 </div>
@@ -140,11 +170,14 @@
 
 <script>
   const SLOGAN = { en: ['Your music, your way', 'Tap to skip'], ga: ['Do cheol, do bhealach', 'Tapáil chun scipeáil'] };
-  let lang = 'en', loop = false, dance = 'mw', calm = matchMedia('(prefers-reduced-motion: reduce)').matches, timer;
+  const DANCES = { '': 'groove', mw: 'moonwalk', disco: 'disco', robot: 'robot', spin: 'spin' }, ORDER = ['random', '', 'mw', 'disco', 'robot', 'spin'];
+  let lang = 'en', loop = false, choice = 'random', dance = '', calm = matchMedia('(prefers-reduced-motion: reduce)').matches, timer;
   const L = document.getElementById('launch');
   function play() {
     clearTimeout(timer);
-    L.className = calm ? 'calm' : dance; L.innerHTML = document.getElementById('tpl').innerHTML;
+    if (choice === 'random') { const keys = Object.keys(DANCES).filter(k => k !== dance); dance = keys[Math.floor(Math.random() * keys.length)]; } else dance = choice;
+    L.className = calm ? 'calm' : dance;
+    document.getElementById('now').textContent = calm ? '' : 'Now: ' + DANCES[dance]; L.innerHTML = document.getElementById('tpl').innerHTML;
     L.querySelector('.slogan').textContent = SLOGAN[lang][0]; L.querySelector('.skip').textContent = SLOGAN[lang][1];
     // in the app the screen fades out once Seylumi is ready (here: after 2.6 s so the whole thing can be seen)
     timer = setTimeout(finish, 2600);
@@ -154,7 +187,7 @@
   const btn = id => document.getElementById(id);
   btn('replay').onclick = play;
   btn('loop').onclick = () => { loop = !loop; btn('loop').textContent = 'Loop: ' + (loop ? 'on' : 'off'); btn('loop').classList.toggle('on', loop); if (loop && !L.innerHTML) play(); };
-  btn('dance').onclick = () => { dance = dance === 'mw' ? '' : 'mw'; btn('dance').textContent = 'Dance: ' + (dance ? 'moonwalk' : 'groove'); play(); };
+  btn('dance').onclick = () => { choice = ORDER[(ORDER.indexOf(choice) + 1) % ORDER.length]; btn('dance').textContent = 'Dance: ' + (choice === 'random' ? 'random' : DANCES[choice]); play(); };
   btn('lang').onclick = () => { lang = lang === 'en' ? 'ga' : 'en'; btn('lang').textContent = lang === 'en' ? 'Gaeilge' : 'English'; play(); };
   btn('calm').onclick = () => { calm = !calm; btn('calm').textContent = 'Reduced motion: ' + (calm ? 'on' : 'off'); btn('calm').classList.toggle('on', calm); play(); };
   btn('calm').textContent = 'Reduced motion: ' + (calm ? 'on' : 'off'); btn('calm').classList.toggle('on', calm);

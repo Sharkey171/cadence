@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 46;
+const APP_VERSION = 47;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
@@ -143,6 +143,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 47, date: '2026-11-13', notes: ['Fixed: Song radio from the Now Playing menu could close Seylumi or jump to the welcome page'] },
   { v: 46, date: '2026-11-13', notes: ['A launch animation: a little dancer with five random moves (groove, moonwalk, disco, robot and spin). Tap to skip, or switch it off in Settings → Appearance'] },
   { v: 45, date: '2026-11-13', notes: ['New for you on Home: new podcast episodes, albums you just added and your Up next list', 'News from Seylumi appears as a small card on Home, which you can dismiss'] },
   { v: 44, date: '2026-11-13', notes: ['New store pictures'] },
@@ -3069,7 +3070,9 @@ let ignorePop = false;
 function overlayOpened() { if (!history.state?.ov) history.pushState({ ov: 1 }, ''); }
 function overlayClosed() {
   // Closed by a button: remove the extra entry, unless something else opened or the page moved on meanwhile.
-  setTimeout(() => { if (!overlayOpen() && history.state?.ov) { ignorePop = true; history.back(); } }, 0);
+  // Several layers can close at once (a menu inside Now Playing): only ever step back once, and never while
+  // a step back is already on its way, or Back would leave Seylumi altogether.
+  setTimeout(() => { if (!overlayOpen() && history.state?.ov && !ignorePop) { ignorePop = true; history.back(); } }, 0);
 }
 addEventListener('popstate', () => {
   if (ignorePop) { ignorePop = false; return; }

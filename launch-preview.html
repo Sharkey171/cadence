@@ -52,8 +52,30 @@
   @keyframes up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   .skip { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); opacity: .6; }
 
+  /* ---------- moonwalk: faces right, glides backwards (left) while the feet seem to walk forwards ---------- */
+  .mw .bounce { animation: glide 1.8s linear infinite; transform-origin: 95px 190px; }
+  @keyframes glide { from { transform: translateX(55px) rotate(-5deg); } to { transform: translateX(-55px) rotate(-5deg); } }
+  .mw .face { transform: translateX(7px); }
+  .mw .head { animation: nod .4s ease-in-out infinite; }
+  @keyframes nod { 0%, 100% { transform: rotate(4deg); } 50% { transform: rotate(-3deg) translateY(2px); } }
+  .mw .armL { animation: mwArmL .8s ease-in-out infinite alternate; }
+  .mw .armR { animation: mwArmR .8s ease-in-out infinite alternate; }
+  @keyframes mwArmL { from { transform: rotate(-38deg); } to { transform: rotate(-58deg); } }
+  @keyframes mwArmR { from { transform: rotate(58deg); } to { transform: rotate(38deg); } }
+  /* each leg: slides back flat on the floor, then lifts its heel (knee bent) and swaps */
+  .mw .legL, .mw .legR { animation: mwLeg .8s linear infinite; }
+  .mw .legR { animation-delay: -.4s; }
+  @keyframes mwLeg { 0% { transform: rotate(-12deg) scaleY(1); } 48% { transform: rotate(14deg) scaleY(1); } 52% { transform: rotate(14deg) scaleY(.88); } 100% { transform: rotate(-12deg) scaleY(.88); } }
+  .mw .foot { transform-box: fill-box; transform-origin: 85% 60%; animation: mwFoot .8s linear infinite; translate: 6px 0; }
+  .mw .legL { translate: 5px 0; } .mw .legR { translate: -5px 0; }
+  .mw .legR .foot { animation-delay: -.4s; }
+  @keyframes mwFoot { 0%, 48% { transform: rotate(0); } 52%, 100% { transform: rotate(-28deg); } }
+  .mw .shadow { animation: glideShadow 1.8s linear infinite; }
+  @keyframes glideShadow { from { transform: translateX(55px); } to { transform: translateX(-55px); } }
+  .mw .note.n1 { left: auto; right: 10px; }
+
   /* people who switch off motion in their phone settings: no dancing, just a gentle fade */
-  .calm .icon, .calm .icon i, .calm .bounce, .calm .head, .calm .armL, .calm .armR, .calm .legL, .calm .legR, .calm .shadow, .calm .note { animation: none !important; }
+  .calm .icon, .calm .icon i, .calm .bounce, .calm .foot, .calm .face, .calm .head, .calm .armL, .calm .armR, .calm .legL, .calm .legR, .calm .shadow, .calm .note { animation: none !important; }
   .calm .icon { opacity: 0; } .calm .note { display: none; }
   .calm .dancer, .calm .word, .calm .slogan { animation: fade .5s ease-out forwards !important; }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -72,6 +94,7 @@
   <p>Preview only. In the app it plays once while Seylumi loads (about 1.5 s), then fades into the app. Tap the animation to skip.</p>
   <button id="replay" class="on">▶ Replay</button>
   <button id="loop">Loop: off</button>
+  <button id="dance" class="on">Dance: moonwalk</button>
   <button id="lang">Gaeilge</button>
   <button id="calm">Reduced motion: off</button>
 </div>
@@ -87,8 +110,8 @@
         <ellipse class="shadow" cx="95" cy="203" rx="34" ry="6" fill="#000" opacity=".45"/>
         <g class="bounce">
           <!-- legs -->
-          <g class="legL"><path d="M85 150 L78 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse cx="74" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
-          <g class="legR"><path d="M105 150 L112 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse cx="116" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
+          <g class="legL"><path d="M85 150 L78 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="74" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
+          <g class="legR"><path d="M105 150 L112 196" stroke="#2f2f3c" stroke-width="13" stroke-linecap="round"/><ellipse class="foot" cx="116" cy="198" rx="11" ry="6" fill="#f3f1ee"/></g>
           <!-- arms -->
           <g class="armL"><path d="M74 108 L52 128" stroke="url(#g)" stroke-width="11" stroke-linecap="round"/><circle cx="50" cy="130" r="7" fill="#f3f1ee"/></g>
           <g class="armR"><path d="M116 108 L138 128" stroke="url(#g)" stroke-width="11" stroke-linecap="round"/><circle cx="140" cy="130" r="7" fill="#f3f1ee"/></g>
@@ -98,9 +121,9 @@
           <!-- head with headphones -->
           <g class="head">
             <circle cx="95" cy="66" r="28" fill="#f3f1ee"/>
-            <path d="M84 64 q4 -5 8 0 M98 64 q4 -5 8 0" stroke="#2f2f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <g class="face"><path d="M84 64 q4 -5 8 0 M98 64 q4 -5 8 0" stroke="#2f2f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
             <path d="M86 75 q9 9 18 0" stroke="#2f2f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-            <circle cx="80" cy="74" r="4" fill="#ff7a59" opacity=".35"/><circle cx="110" cy="74" r="4" fill="#ff7a59" opacity=".35"/>
+            <circle cx="80" cy="74" r="4" fill="#ff7a59" opacity=".35"/><circle cx="110" cy="74" r="4" fill="#ff7a59" opacity=".35"/></g>
             <path d="M64 66 a31 33 0 0 1 62 0" stroke="#2f2f3c" stroke-width="7" fill="none" stroke-linecap="round"/>
             <rect x="58" y="58" width="14" height="22" rx="6" fill="url(#g)"/>
             <rect x="118" y="58" width="14" height="22" rx="6" fill="url(#g)"/>
@@ -117,11 +140,11 @@
 
 <script>
   const SLOGAN = { en: ['Your music, your way', 'Tap to skip'], ga: ['Do cheol, do bhealach', 'Tapáil chun scipeáil'] };
-  let lang = 'en', loop = false, calm = matchMedia('(prefers-reduced-motion: reduce)').matches, timer;
+  let lang = 'en', loop = false, dance = 'mw', calm = matchMedia('(prefers-reduced-motion: reduce)').matches, timer;
   const L = document.getElementById('launch');
   function play() {
     clearTimeout(timer);
-    L.className = calm ? 'calm' : ''; L.innerHTML = document.getElementById('tpl').innerHTML;
+    L.className = calm ? 'calm' : dance; L.innerHTML = document.getElementById('tpl').innerHTML;
     L.querySelector('.slogan').textContent = SLOGAN[lang][0]; L.querySelector('.skip').textContent = SLOGAN[lang][1];
     // in the app the screen fades out once Seylumi is ready (here: after 2.6 s so the whole thing can be seen)
     timer = setTimeout(finish, 2600);
@@ -131,6 +154,7 @@
   const btn = id => document.getElementById(id);
   btn('replay').onclick = play;
   btn('loop').onclick = () => { loop = !loop; btn('loop').textContent = 'Loop: ' + (loop ? 'on' : 'off'); btn('loop').classList.toggle('on', loop); if (loop && !L.innerHTML) play(); };
+  btn('dance').onclick = () => { dance = dance === 'mw' ? '' : 'mw'; btn('dance').textContent = 'Dance: ' + (dance ? 'moonwalk' : 'groove'); play(); };
   btn('lang').onclick = () => { lang = lang === 'en' ? 'ga' : 'en'; btn('lang').textContent = lang === 'en' ? 'Gaeilge' : 'English'; play(); };
   btn('calm').onclick = () => { calm = !calm; btn('calm').textContent = 'Reduced motion: ' + (calm ? 'on' : 'off'); btn('calm').classList.toggle('on', calm); play(); };
   btn('calm').textContent = 'Reduced motion: ' + (calm ? 'on' : 'off'); btn('calm').classList.toggle('on', calm);

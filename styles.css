@@ -606,3 +606,15 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .g-list { margin-top: 18px; text-align: left; display: grid; gap: 6px; }
 .g-row { display: grid; grid-template-columns: 22px 1fr; column-gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--panel); }
 .g-row svg { width: 18px; height: 18px; grid-row: span 2; } .g-row.ok svg { color: #3ddc84; } .g-row.no svg { color: #ff6b6b; } .g-row .row-sub { color: var(--muted); font-size: 13px; }
+
+/* ---------- Get music ---------- */
+.gm-back { margin-bottom: 12px; }
+.gm-cards { display: grid; gap: 10px; margin: 6px 0 22px; }
+.gm-card { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line, #2a2a35); color: var(--text); text-decoration: none; }
+.gm-card b { display: block; font-size: 16px; } .gm-card small { color: var(--muted); font-size: 13px; }
+.gm-ic { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.gm-steps { padding-left: 22px; line-height: 1.55; margin: 10px 0 16px; } .gm-steps li { margin-bottom: 8px; } .gm-steps a, .gm-opt a { color: var(--accent); }
+.gm-opt { background: var(--panel); border-radius: 16px; padding: 4px 16px 6px; margin-bottom: 12px; } .gm-opt h2 { font-size: 17px; margin: 12px 0 6px; } .gm-opt p { line-height: 1.5; }
+.gm-stores { display: grid; gap: 10px; margin: 12px 0; }
+.gm-store { display: grid; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line, #2a2a35); color: var(--text); text-decoration: none; }
+.gm-store span { color: var(--muted); font-size: 14px; line-height: 1.4; } .gm-store em { color: var(--accent); font-style: normal; font-weight: 600; font-size: 14px; }

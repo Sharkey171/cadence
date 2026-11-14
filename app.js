@@ -133,9 +133,14 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 51;
+const APP_VERSION = 52;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
+// Hidden testing menu: tap the version number in Settings five times.
+const previewsOn = () => { try { return localStorage.getItem('cadence-previews') === 'on'; } catch { return false; } };
+let verTaps = 0, verTapAt = 0;
+const previewsBlock = () => previewsOn() ? `<div class="settings-block"><h2>Previews (testing)</h2><p class="muted">Features being tested before they go live. Only you can see this.</p>
+  <div class="hero-actions"><a class="btn" href="#/getmusic">${ic('library')}Get music</a><a class="btn" href="#/game">${ic('note')}Guess the Song</a><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
@@ -3162,7 +3167,7 @@ const VIEWS = {
     try { const e = await navigator.storage.estimate(); usage = `${(e.usage / 1e9).toFixed(2)} GB used of about ${(e.quota / 1e9).toFixed(0)} GB available to the app`; } catch {}
     if (page() !== 'settings') return;
     const copied = [...S.tracks.values()].filter(t => !t.linked).length;
-    setView('<h1>Settings</h1>',
+    setView('<h1>Settings</h1>', previewsBlock(),
       `<div class="settings-block"><h2>Language</h2><p>Choose the language for Seylumi. Song names and podcast titles stay as they are.</p>
         <select data-set="lang" aria-label="Language"><option value="auto">Automatic (your device’s language)</option>${Object.entries(LANGS).map(([k, n]) => `<option value="${k}" translate="no" ${(() => { try { return localStorage.getItem('cadence-lang') === k; } catch { return false; } })() ? 'selected' : ''}>${n}</option>`).join('')}</select>
         ${LANG === 'ga' ? '<p style="margin-top:10px;font-size:13px">Is aistriúchán neamhoifigiúil é seo. Fáilte roimh cheartúcháin.</p>' : ''}</div>`,
@@ -3184,7 +3189,7 @@ const VIEWS = {
         <h2 style="margin-top:20px">Now Playing animation</h2><div class="chips">${VIZ.map(([k, l]) => `<button class="chip ${S.fx.viz === k ? 'active' : ''}" data-act="set-viz" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="swatches">${Object.entries(ACCENTS).map(([n, c]) => `<button class="swatch ${S.theme.accent === c ? 'on' : ''}" style="background:${c}" data-act="theme-accent" data-c="${c}" aria-label="${n} accent colour"></button>`).join('')}</div>
         <div class="hero-actions" style="margin-top:14px"><button class="btn ${S.theme.auto ? 'primary' : ''}" data-act="theme-auto" aria-label="Tint the app with the colours of the cover that is playing">Match album art: ${S.theme.auto ? 'On' : 'Off'}</button></div></div>`,
-      `<div class="settings-block"><h2>About Seylumi</h2><p>Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p><p class="muted" style="font-size:13px;margin-top:-4px">Seylumi™ is a trademark.</p>
+      `<div class="settings-block"><h2>About Seylumi</h2><p data-act="version-tap" style="cursor:default;user-select:none">Version ${APP_VERSION} · ${fmtDate(RELEASES[0].date)}</p><p class="muted" style="font-size:13px;margin-top:-4px">Seylumi™ is a trademark.</p>
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate && !IN_STORE_APP ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
@@ -3447,6 +3452,11 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'version-tap': () => {
+    const now = Date.now(); verTaps = now - verTapAt < 1500 ? verTaps + 1 : 1; verTapAt = now;
+    if (verTaps >= 5) { verTaps = 0; try { localStorage.setItem('cadence-previews', 'on'); } catch {} toast('Previews unlocked: see the top of Settings'); rerender(); $('#view').scrollTop = 0; }
+  },
+  'previews-off': () => { try { localStorage.removeItem('cadence-previews'); } catch {} rerender(); },
   'add-pack': el => { const p = PACKS.find(x => x.id === el.dataset.id); if (p) addPack(p); },
   'game-start': () => gameStart(),
   'game-answer': el => gameAnswer(+el.dataset.i),

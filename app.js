@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 52;
+const APP_VERSION = 53;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -1740,10 +1740,10 @@ const PACKS = [
 // Shops that sell downloads you keep forever (no subscription, play on any device). Check availability in your country.
 const STORES = [
   { name: 'Bandcamp', url: q => `https://bandcamp.com/search?q=${q}&item_type=t`, desc: 'Artists get most of what you pay. Mainly independent artists, plus some well-known names. MP3 or FLAC.' },
+  { name: '7digital', url: q => `https://ie.7digital.com/search?q=${q}`, desc: 'Chart hits and big artists as MP3 downloads to keep. Sells to Ireland.' },
   { name: 'Qobuz', url: q => `https://www.qobuz.com/ie-en/search?q=${q}`, desc: 'Chart artists and big albums in top quality, as downloads to keep.' },
   { name: 'iTunes Store (Apple)', url: q => `https://music.apple.com/ie/search?term=${q}`, desc: 'Chart music to buy and keep, on an iPhone, Mac, or Windows computer with the Apple Music or iTunes app. Purchases are yours to download.' },
   { name: 'Amazon Music (MP3)', url: q => `https://www.amazon.co.uk/s?k=${q}&i=digital-music`, desc: 'Chart music as MP3 downloads, where Amazon sells them to your country.' },
-  { name: '7digital', url: q => `https://uk.7digital.com/search?q=${q}`, desc: 'Chart and independent music as MP3 or high-quality downloads.' },
 ];
 const plat = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ? 'ios' : 'computer';
 const packMem = new Map();

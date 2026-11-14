@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 49;
+const APP_VERSION = 50;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
@@ -209,6 +209,12 @@ const TR_PATTERNS = [
   [/^(\d+) new episodes? downloaded$/, m => P('newdl', { n: m[1] })],
   [/^(\d+) added to Up next$/, m => P('upadded', { n: m[1] })],
   [/^(\d+) episodes waiting$/, m => P('epwait', { n: m[1] })],
+  [/^Song (\d+) of (\d+)$/, m => P('gsong', { a: m[1], b: m[2] })],
+  [/^(\d+) points$/, m => P('gpts', { n: m[1] })],
+  [/^(\d+) points!$/, m => P('gwin', { n: m[1] })],
+  [/^(\d+) points! · (\d+) in a row$/, m => P('grow', { n: m[1], m: m[2] })],
+  [/^(\d+) of (\d+) right · New best score!$/, m => P('gbest', { a: m[1], b: m[2] })],
+  [/^(\d+) of (\d+) right · Best: (\d+)$/, m => P('gres', { a: m[1], b: m[2], c: m[3] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1714,6 +1720,119 @@ async function newForYou() {
   return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
 }
 
+/* ---------------- Seylumi Plus (not on sale yet) ---------------- */
+// PLUS_LIVE switches the Plus features on in the app's menus once Plus is sold. Until then they open only
+// from a direct link (e.g. #/game). hasPlus() will check the purchase; for now it's a test switch.
+const PLUS_LIVE = false;
+const hasPlus = () => { try { return localStorage.getItem('cadence-plus') === 'on' || sessionStorage.getItem('cadence-plus-test') === '1'; } catch { return false; } };
+
+/* ---------------- Guess the Song (Plus; one free round a day) ---------------- */
+const GAME_Q = 5, GAME_FREE = 1, CLIP = 5;
+let G = null, gameAudio = null, gameTimer = 0;
+async function gameInfo() {
+  const d = await idb.get('kv', 'game').catch(() => null) || {}, played = d.day === dayKey() ? d.rounds || 0 : 0;
+  return { d, best: d.best || 0, games: d.games || 0, played, left: hasPlus() ? Infinity : Math.max(0, GAME_FREE - played) };
+}
+const gamePool = () => [...shown()].filter(t => !t.url && t.title && (t.duration == null || t.duration >= 20));
+Object.defineProperty(window, 'gameClipPlaying', { get: () => !!gameAudio && !gameAudio.paused });   // for tests
+Object.defineProperty(window, 'gameAnswerForTests', { get: () => G?.cur ? G.cur.opts.indexOf(G.cur.t) : -1 });
+function stopGameAudio() { clearTimeout(gameTimer); if (gameAudio) { gameAudio.pause(); URL.revokeObjectURL(gameAudio.src); gameAudio = null; } const b = $('#g-bar i'); if (b) { b.style.transition = 'none'; b.style.width = '0'; } $('#g-play')?.classList.remove('on'); }
+function gameQuestions(pool) {
+  // songs you know are more fun to guess: played and liked songs first, the rest mixed in
+  const known = shuffleArr(pool.filter(t => t.plays || t.liked)), rest = shuffleArr(pool.filter(t => !t.plays && !t.liked));
+  const picks = [...known.slice(0, 4), ...rest].slice(0, GAME_Q * 3);   // spares for songs that won't open
+  const seenTitles = new Set();
+  return shuffleArr(picks.filter(t => { const k = norm(t.title); if (seenTitles.has(k)) return false; seenTitles.add(k); return true; }));
+}
+function gameOptions(t, pool) {
+  // four different songs, each by a different artist where the library allows, so no choice stands out;
+  // similar music (same genre) first for a fair challenge
+  const g = norm(t.genre), titles = new Set([norm(t.title)]), artists = new Set([norm(t.artist)]), wrong = [];
+  const cands = [...shuffleArr(pool.filter(x => g && norm(x.genre) === g)), ...shuffleArr(pool.filter(x => !g || norm(x.genre) !== g))];
+  for (const pass of [true, false]) for (const x of cands) {
+    if (wrong.length >= 3) break;
+    const k = norm(x.title), a = norm(x.artist);
+    if (titles.has(k) || (pass && artists.has(a))) continue;
+    wrong.push(x); titles.add(k); artists.add(a);
+  }
+  return shuffleArr([t, ...wrong]);
+}
+async function gameStart() {
+  const info = await gameInfo(), pool = gamePool();
+  if (pool.length < 8) return route();
+  if (info.left <= 0) return route();
+  info.d.day = dayKey(); info.d.rounds = info.played + 1; idb.put('kv', info.d, 'game').catch(() => {});
+  if (playing()) pauseNow();
+  G = { qs: gameQuestions(pool), pool, i: 0, n: 0, score: 0, right: 0, streak: 0, log: [] };
+  gameNext();
+}
+async function gameNext() {
+  stopGameAudio();
+  if (!G) return;
+  if (G.n >= GAME_Q || !G.qs.length) return gameResults();
+  const t = G.qs.shift();
+  let file; try { file = await sourceFile(t); } catch { file = null; }
+  if (!file) return gameNext();   // can't open this one (folder needs permission, file moved): use a spare
+  G.cur = { t, file, opts: gameOptions(t, G.pool), long: false, startedAt: 0, answered: false };
+  G.n++;
+  const opts = G.cur.opts.map((o, i) => `<button class="g-opt" data-act="game-answer" data-i="${i}"><span class="row-title">${esc(o.title)}</span><span class="row-sub">${esc(o.artist || 'Unknown artist')}</span></button>`).join('');
+  setView(`<div class="game"><div class="g-top"><span>Song ${G.n} of ${GAME_Q}</span><b>${G.score} points</b></div>
+    <button class="g-play on" id="g-play" data-act="game-replay" aria-label="Play the clip again"><span class="g-eq"><i></i><i></i><i></i><i></i><i></i></span></button>
+    <div class="g-bar" id="g-bar"><i></i></div>
+    <p class="muted g-q">Which song is this?</p>
+    <div class="g-opts">${opts}</div>
+    <button class="btn g-more" data-act="game-more">${ic('plus')}Hear more (half points)</button></div>`);
+  gamePlay(CLIP);
+}
+function gamePlay(secs) {
+  stopGameAudio();
+  const c = G?.cur; if (!c) return;
+  const a = gameAudio = new Audio(URL.createObjectURL(c.file)); a.volume = Math.min(1, S.volume || 1);
+  const go = () => {
+    const d = isFinite(a.duration) && a.duration > 0 ? a.duration : (c.t.duration || 120);
+    if (c.from == null) c.from = Math.max(0, Math.min(d - CLIP * 2 - 2, d * (0.25 + Math.random() * 0.35)));
+    a.currentTime = c.from;
+    a.play().then(() => {
+      if (!c.startedAt) c.startedAt = performance.now();
+      $('#g-play')?.classList.add('on');
+      const b = $('#g-bar i'); if (b) { b.style.transition = 'none'; b.style.width = '0'; void b.offsetWidth; b.style.transition = `width ${secs}s linear`; b.style.width = '100%'; }
+      gameTimer = setTimeout(stopGameAudio, secs * 1000);
+    }).catch(() => {});
+  };
+  if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true });
+}
+function gameAnswer(i) {
+  const c = G?.cur; if (!c || c.answered) return;
+  c.answered = true; stopGameAudio();
+  const pick = c.opts[i], right = pick.id === c.t.id;
+  const secs = c.startedAt ? (performance.now() - c.startedAt) / 1000 : CLIP;
+  let pts = 0;
+  if (right) { G.streak++; G.right++; pts = Math.max(20, Math.round(100 - secs * 12)); if (c.long) pts = Math.round(pts / 2); pts += (G.streak - 1) * 10; G.score += pts; }
+  else G.streak = 0;
+  G.log.push({ t: c.t, right });
+  $$('.g-opt').forEach((b, k) => { b.disabled = true; if (c.opts[k].id === c.t.id) b.classList.add('right'); else if (k === i) b.classList.add('wrong'); });
+  $('.g-more')?.remove();
+  $('.g-q').innerHTML = right ? `<b class="g-ok">${pts} points!${G.streak > 1 ? ` · ${G.streak} in a row` : ''}</b>` : `<b class="g-no">Not quite</b>`;
+  $('.g-top b').textContent = `${G.score} points`;
+  $('#g-play').outerHTML = `<div class="g-reveal">${artDiv(c.t.artId, c.t.album || c.t.title)}</div>`;
+  $('.game').insertAdjacentHTML('beforeend', `<button class="btn primary g-next" data-act="game-next">${G.n >= GAME_Q ? 'See your score' : 'Next song'}</button>`);
+  // hear the answer while deciding to go on
+  gamePlay(8);
+}
+async function gameResults() {
+  stopGameAudio();
+  const g = G; G = null; if (!g) return route();
+  const info = await gameInfo(), isBest = g.score > info.best;
+  info.d.best = Math.max(info.best, g.score); info.d.games = info.games + 1; idb.put('kv', info.d, 'game').catch(() => {});
+  const msg = g.right === GAME_Q ? 'Perfect! You really know your music.' : g.right >= 4 ? 'Brilliant ear!' : g.right >= 2 ? 'Nice one!' : 'Keep listening and try again!';
+  const again = info.left > 0 ? `<button class="btn primary" data-act="game-start">${ic('play')}Play again</button>` : '';
+  setView(`<div class="game g-end"><div class="g-score">${g.score}</div><p class="g-points">points</p>
+    <h2>${msg}</h2><p class="muted">${g.right} of ${GAME_Q} right${isBest ? ' · New best score!' : ` · Best: ${info.d.best}`}</p>
+    <div class="hero-actions" style="justify-content:center">${again}<button class="btn" data-act="game-share" data-score="${g.score}" data-right="${g.right}">${ic('share')}Share score</button><a class="btn" href="#/home">Done</a></div>
+    ${info.left > 0 ? '' : `<p class="muted g-limit">${hasPlus() ? '' : 'That was today’s free round. Come back tomorrow for another, or play as much as you like with Seylumi Plus (coming soon).'}</p>`}
+    <div class="g-list">${g.log.map(x => `<div class="g-row ${x.right ? 'ok' : 'no'}">${x.right ? ic('check') : ic('x')}<span class="row-title">${esc(x.t.title)}</span><span class="row-sub">${esc(x.t.artist || '')}</span></div>`).join('')}</div></div>`);
+}
+
 /* ---------------- your year in music ---------------- */
 function yearData(y) {
   const from = new Date(y, 0, 1).getTime(), to = new Date(y + 1, 0, 1).getTime();
@@ -2719,6 +2838,19 @@ const VIEWS = {
     setView(`<div class="hero"><div class="art mix-art" style="background:linear-gradient(135deg,${MIX_BG[+i]})">${ic('radio')}<b>${+i + 1}</b></div><div class="hero-text"><div class="kind">Made for you</div><h1>Daily Mix ${+i + 1}</h1>
       <div class="muted">${esc(mixSub(m))} · ${total(viewIds.map(T))}</div><p class="muted" style="margin:4px 0 0">New mixes every day, from your own music.</p>${heroActions(`<button class="btn" data-act="save-daily" data-i="${+i}">${ic('plus')}Save as playlist</button>`)}</div></div>`, trackList(viewIds));
   },
+  async game(arg) {
+    if (arg === 'test') { try { sessionStorage.setItem('cadence-plus-test', '1'); } catch {} }
+    if (G) return;   // a round is on screen
+    viewIds = [];
+    const info = await gameInfo(), pool = gamePool();
+    const can = pool.length >= 8;
+    setView(`<div class="game g-intro"><div class="g-logo">${ic('note')}</div><h1>Guess the Song</h1>
+      <p class="muted">Hear 5 seconds of a song from your own music, then pick it from four choices. Answer faster for more points, and keep a streak going for a bonus.</p>
+      ${!can ? '<div class="empty">Add at least 8 songs to your library to play.</div>' : info.left > 0
+        ? `<button class="btn primary g-start" data-act="game-start">${ic('play')}Start</button><p class="muted">${hasPlus() ? 'Seylumi Plus: play as much as you like.' : 'One free round a day.'}</p>`
+        : `<p class="g-limit">You’ve played today’s free round. Come back tomorrow, or play as much as you like with Seylumi Plus (coming soon).</p>`}
+      ${info.best ? `<p class="muted">Your best score: <b>${info.best}</b></p>` : ''}</div>`);
+  },
   async year(y) {
     const years = [...new Set(S.hist.filter(x => x.k !== 'episode').map(x => new Date(x.a).getFullYear()))].sort((a, b) => b - a);
     const now = new Date(), def = now.getMonth() < 1 && years.includes(now.getFullYear() - 1) ? now.getFullYear() - 1 : years[0];
@@ -2960,7 +3092,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { game: 'home', shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -2968,6 +3100,7 @@ function route() {
 }
 function rerender() { const y = view.scrollTop; route(); view.scrollTop = y; }
 let lastHash = '';
+addEventListener('hashchange', () => { if (page() !== 'game' && (G || gameAudio)) { stopGameAudio(); G = null; } });
 addEventListener('hashchange', () => {
   const samePage = lastHash.split('/')[1] === page();
   lastHash = location.hash;
@@ -3193,6 +3326,16 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'game-start': () => gameStart(),
+  'game-answer': el => gameAnswer(+el.dataset.i),
+  'game-replay': () => { if (G?.cur && !G.cur.answered) gamePlay(G.cur.long ? CLIP * 2 : CLIP); },
+  'game-more': el => { if (!G?.cur || G.cur.answered) return; G.cur.long = true; el.remove(); gamePlay(CLIP * 2); },
+  'game-next': () => gameNext(),
+  'game-share': async el => {
+    const text = `I scored ${el.dataset.score} points (${el.dataset.right} of ${GAME_Q} right) on Guess the Song in Seylumi!`;
+    try { if (navigator.share) return await navigator.share({ title: 'Guess the Song', text, url: APP_LINK }); } catch (e) { if (e?.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(`${text} ${APP_LINK}`); toast('Copied, ready to paste'); } catch { toast(text); }
+  },
   'launch-pref': el => { try { localStorage.setItem('cadence-launch', el.dataset.v); } catch {} rerender(); },
   'launch-show': () => { try { sessionStorage.removeItem('cadence-launched'); localStorage.removeItem('cadence-launch'); } catch {} location.reload(); },
   'news-dismiss': el => dismissNews(el.dataset.id),

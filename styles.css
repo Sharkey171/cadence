@@ -618,3 +618,4 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .gm-stores { display: grid; gap: 10px; margin: 12px 0; }
 .gm-store { display: grid; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line, #2a2a35); color: var(--text); text-decoration: none; }
 .gm-store span { color: var(--muted); font-size: 14px; line-height: 1.4; } .gm-store em { color: var(--accent); font-style: normal; font-weight: 600; font-size: 14px; }
+.gm-more { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 14px; margin-top: 4px; text-decoration: none; } .gm-more svg { width: 16px; height: 16px; }

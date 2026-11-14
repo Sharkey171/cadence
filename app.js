@@ -133,14 +133,14 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 54;
+const APP_VERSION = 55;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
 const previewsOn = () => { try { return localStorage.getItem('cadence-previews') === 'on'; } catch { return false; } };
 let verTaps = 0, verTapAt = 0;
 const previewsBlock = () => previewsOn() ? `<div class="settings-block"><h2>Previews (testing)</h2><p class="muted">Features being tested before they go live. Only you can see this.</p>
-  <div class="hero-actions"><a class="btn" href="#/getmusic">${ic('library')}Get music</a><a class="btn" href="#/game">${ic('note')}Guess the Song</a><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
+  <div class="hero-actions"><a class="btn" href="#/game">${ic('note')}Guess the Song</a><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 55, date: '2026-11-14', notes: ['Get your music in: a step-by-step guide for adding music from your phone, computer or online purchases', 'Free music packs to keep (chill, classical, acoustic, piano, jazz, rock, electronic, hip hop), added in one tap', 'Buy music to keep: search Bandcamp, 7digital and Qobuz for songs you own forever'] },
   { v: 49, date: '2026-11-13', notes: ['Linked music folders: no more hunting for the Reconnect button. Tap anything (like a song) and choose Allow, and it plays straight away'] },
   { v: 47, date: '2026-11-13', notes: ['Fixed: Song radio from the Now Playing menu could close Seylumi or jump to the welcome page'] },
   { v: 46, date: '2026-11-13', notes: ['A launch animation: a little dancer with five random moves (groove, moonwalk, disco, robot and spin). Tap to skip, or switch it off in Settings → Appearance'] },
@@ -220,6 +221,8 @@ const TR_PATTERNS = [
   [/^(\d+) points! · (\d+) in a row$/, m => P('grow', { n: m[1], m: m[2] })],
   [/^(\d+) of (\d+) right · New best score!$/, m => P('gbest', { a: m[1], b: m[2] })],
   [/^(\d+) of (\d+) right · Best: (\d+)$/, m => P('gres', { a: m[1], b: m[2], c: m[3] })],
+  [/^(\d+) songs · (\d+) min · about (\d+) MB$/, m => P('pksize', { a: m[1], b: m[2], c: m[3] })],
+  [/^Getting “(.+)”: song (\d+) of (\d+)…$/, m => P('pkget', { x: I18N.d[m[1]] || m[1], a: m[2], b: m[3] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1726,7 +1729,6 @@ async function newForYou() {
 }
 
 /* ---------------- Get music: a guide, free starter packs, and where to buy ---------------- */
-// PREVIEW: opens from #/getmusic only, until approved.
 const PACKS = [
   { id: 'chill', name: 'Chill & ambient', bg: '#2a9d8f,#264653', q: 'collection:netlabels AND subject:(ambient OR chillout OR downtempo)' },
   { id: 'classical', name: 'Classical favourites', bg: '#9d174d,#3c096c', q: 'collection:musopen', pd: true },
@@ -1739,9 +1741,9 @@ const PACKS = [
 ];
 // Shops that sell downloads you keep forever (no subscription, play on any device). Check availability in your country.
 const STORES = [
-  { name: 'Bandcamp', url: q => `https://bandcamp.com/search?q=${q}&item_type=t`, desc: 'Artists get most of what you pay. Mainly independent artists, plus some well-known names. MP3 or FLAC. Sells to Ireland.' },
-  { name: '7digital', url: q => `https://ie.7digital.com/search?q=${q}`, desc: 'Chart hits and big artists as MP3 downloads to keep. Sells to Ireland.' },
-  { name: 'Qobuz', url: q => `https://www.qobuz.com/ie-en/search?q=${q}`, desc: 'Chart artists and big albums as downloads to keep, in top quality. Sells to Ireland.' },
+  { name: 'Bandcamp', home: 'https://bandcamp.com/', url: q => `https://bandcamp.com/search?q=${q}&item_type=t`, desc: 'Artists get most of what you pay. Mainly independent artists, plus some well-known names. MP3 or FLAC. Sells to Ireland.' },
+  { name: '7digital', home: 'https://ie.7digital.com/', url: q => `https://ie.7digital.com/search?q=${q}`, desc: 'Chart hits and big artists as MP3 downloads to keep. Sells to Ireland.' },
+  { name: 'Qobuz', home: 'https://www.qobuz.com/ie-en/shop', url: q => `https://www.qobuz.com/ie-en/search?q=${q}`, desc: 'Chart artists and big albums as downloads to keep, in top quality. Sells to Ireland.' },
 ];
 const plat = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ? 'ios' : 'computer';
 const packMem = new Map();
@@ -1791,43 +1793,48 @@ async function addPack(p) {
 }
 function getMusicView(where, arg) {
   viewIds = [];
-  const P = plat(), canFolder = !!window.showDirectoryPicker;
+  // Sentences with bold words and links are translated whole (I18N), not word by word.
+  const t_ = (x, v = {}) => Object.entries(v).reduce((a, [k, val]) => a.split('{' + k + '}').join(val), (I18N && I18N.d[x]) || x);
+  const P = plat(), canFolder = !!window.showDirectoryPicker, dev = P === 'computer' ? 'computer' : 'phone';
   const back = `<a class="btn gm-back" href="#/getmusic">${ic('prev')}Back</a>`;
-  const steps = list => `<ol class="gm-steps">${list.map(x => `<li>${x}</li>`).join('')}</ol>`;
+  const steps = list => `<ol class="gm-steps" translate="no">${list.map(x => `<li>${t_(x)}</li>`).join('')}</ol>`;
+  const para = (x, cls = 'muted') => `<p class="${cls}" translate="no">${t_(x)}</p>`;
   const addBtns = `<div class="hero-actions">${canFolder ? `<button class="btn primary" data-act="add-folder">${ic('folder')}Link a folder</button>` : ''}<button class="btn ${canFolder ? '' : 'primary'}" data-act="add-files">${ic('file')}Add files</button></div>`;
-  if (where === 'phone') return setView(back, `<h1>Music on this ${P === 'computer' ? 'computer' : 'phone'}</h1>`,
-    P === 'android' ? `<p class="muted">Most music on Android phones is in a folder called <b>Music</b> or <b>Download</b>.</p>` + steps([
-      `Tap <b>Link a folder</b> below.`, `In the window that opens, tap the <b>☰ menu</b> (top left) and choose your phone’s name, or <b>Internal storage</b>.`,
-      `Tap the <b>Music</b> folder (or <b>Download</b>, if your songs came from the internet).`, `Tap <b>Use this folder</b>, then <b>Allow</b>.`, `Seylumi adds all the songs in it. New songs you put there later can be added the same way.`]) + addBtns
-    : P === 'ios' ? `<p class="muted">On iPhone, music files are kept in the <b>Files</b> app.</p>` + steps([
-      `Tap <b>Add files</b> below.`, `Tap <b>Browse</b> at the bottom, then <b>On My iPhone</b> or <b>iCloud Drive</b>.`, `Open the folder with your songs. Tap <b>Select</b> (top right), then <b>Select All</b>.`, `Tap <b>Open</b>. Seylumi keeps its own copy, so they play offline.`])
-      + `<p class="muted" style="margin-top:12px">Songs bought in Apple’s iTunes Store live in the Apple Music app, which other apps can’t open. You can still play them there.</p>` + addBtns
-    : `<p class="muted">Music on a computer is usually in your <b>Music</b> folder, or <b>Downloads</b>.</p>` + steps([
-      `Click <b>Link a folder</b> below.`, `Choose your <b>Music</b> folder (or wherever your songs are) and click <b>Select folder</b>.`, `Click <b>View files</b> or <b>Allow</b> when asked. Seylumi adds every song inside, including sub-folders.`]) + addBtns);
+  const herePage = dev === 'computer' ? 'Music on this computer' : 'Music on this phone';
+  if (where === 'phone') return setView(back, `<h1>${herePage}</h1>`,
+    P === 'android' ? para('Most music on Android phones is in a folder called <b>Music</b> or <b>Download</b>.') + steps([
+      'Tap <b>Link a folder</b> below.', 'In the window that opens, tap the <b>☰ menu</b> (top left) and choose your phone’s name, or <b>Internal storage</b>.',
+      'Tap the <b>Music</b> folder (or <b>Download</b>, if your songs came from the internet).', 'Tap <b>Use this folder</b>, then <b>Allow</b>.', 'Seylumi adds all the songs in it. New songs you put there later can be added the same way.']) + addBtns
+    : P === 'ios' ? para('On iPhone, music files are kept in the <b>Files</b> app.') + steps([
+      'Tap <b>Add files</b> below.', 'Tap <b>Browse</b> at the bottom, then <b>On My iPhone</b> or <b>iCloud Drive</b>.', 'Open the folder with your songs. Tap <b>Select</b> (top right), then <b>Select All</b>.', 'Tap <b>Open</b>. Seylumi keeps its own copy, so they play offline.'])
+      + para('Songs bought in Apple’s iTunes Store live in the Apple Music app, which other apps can’t open. You can still play them there.') + addBtns
+    : para('Music on a computer is usually in your <b>Music</b> folder, or <b>Downloads</b>.') + steps([
+      'Click <b>Link a folder</b> below.', 'Choose your <b>Music</b> folder (or wherever your songs are) and click <b>Select folder</b>.', 'Click <b>View files</b> or <b>Allow</b> when asked. Seylumi adds every song inside, including sub-folders.']) + addBtns);
   if (where === 'computer') return setView(back, '<h1>Music on my computer</h1>', '<p class="muted">Pick whichever sounds easiest.</p>',
-    `<div class="gm-opt"><h2>Use Seylumi on the computer too</h2><p>Open <b>${esc(APP_LINK.replace(/^https:\/\//, '').replace(/welcome\.html$/, ''))}</b> in Chrome or Edge on the computer, then <b>Add music → Link a folder</b> and pick your Music folder. Easiest if you listen at your desk.</p></div>`,
-    `<div class="gm-opt"><h2>Copy to your phone with a cable</h2>${steps([`Plug your phone into the computer with its charging cable.`, `On the phone, tap the <b>USB notification</b> and choose <b>File transfer</b>.`, `On the computer, open the phone in <b>File Explorer</b> (it appears like a USB stick), then open its <b>Music</b> folder.`, `Drag your music folders from the computer into it. Big collections can take a while.`, `Then, on the phone, follow <a href="#/getmusic/phone">Music on this phone</a>.`])}</div>`,
-    `<div class="gm-opt"><h2>Send through Google Drive</h2>${steps([`On the computer, go to <b>drive.google.com</b> and drag your music in.`, `On the phone, open the <b>Drive</b> app, select the songs, tap <b>⋮</b> and choose <b>Download</b>.`, `They go to your phone’s <b>Download</b> folder. Then follow <a href="#/getmusic/phone">Music on this phone</a> and choose Download.`])}</div>`);
+    `<div class="gm-opt"><h2>Use Seylumi on the computer too</h2><p translate="no">${t_('Open <b>{host}</b> in Chrome or Edge on the computer, then <b>Add music → Link a folder</b> and pick your Music folder. Easiest if you listen at your desk.', { host: esc(APP_LINK.replace(/^https:\/\//, '').replace(/welcome\.html$/, '')) })}</p></div>`,
+    `<div class="gm-opt"><h2>Copy to your phone with a cable</h2>${steps(['Plug your phone into the computer with its charging cable.', 'On the phone, tap the <b>USB notification</b> and choose <b>File transfer</b>.', 'On the computer, open the phone in <b>File Explorer</b> (it appears like a USB stick), then open its <b>Music</b> folder.', 'Drag your music folders from the computer into it. Big collections can take a while.', 'Then, on the phone, follow <a href="#/getmusic/phone">Music on this phone</a>.'])}</div>`,
+    `<div class="gm-opt"><h2>Send through Google Drive</h2>${steps(['On the computer, go to <b>drive.google.com</b> and drag your music in.', 'On the phone, open the <b>Drive</b> app, select the songs, tap <b>⋮</b> and choose <b>Download</b>.', 'They go to your phone’s <b>Download</b> folder. Then follow <a href="#/getmusic/phone">Music on this phone</a> and choose Download.'])}</div>`);
   if (where === 'bought') return setView(back, '<h1>Music I bought online</h1>',
-    steps([`Sign in to the shop where you bought it (Bandcamp, Amazon, Qobuz and so on) and find your <b>purchases</b> or <b>collection</b>.`, `Choose <b>Download</b>, and pick <b>MP3</b> if asked (it plays everywhere).`, `If you get a <b>.zip</b> file, open your <b>Files</b> app, tap the zip and choose <b>Extract</b>.`, `Then follow <a href="#/getmusic/phone">Music on this ${P === 'computer' ? 'computer' : 'phone'}</a> and choose the <b>Download</b> folder.`]),
-    `<p class="muted">Music from Spotify, Apple Music, YouTube Music and other subscriptions can’t be saved as files: it’s locked to their apps. Only songs you <b>buy</b> as downloads (not rent through a subscription) can be added.</p>`);
+    steps(['Sign in to the shop where you bought it (Bandcamp, 7digital, Qobuz and so on) and find your <b>purchases</b> or <b>collection</b>.', 'Choose <b>Download</b>, and pick <b>MP3</b> if asked (it plays everywhere).', 'If you get a <b>.zip</b> file, open your <b>Files</b> app, tap the zip and choose <b>Extract</b>.',
+      dev === 'computer' ? 'Then follow <a href="#/getmusic/phone">Music on this computer</a> and choose the <b>Downloads</b> folder.' : 'Then follow <a href="#/getmusic/phone">Music on this phone</a> and choose the <b>Download</b> folder.']),
+    para('Music from Spotify, Apple Music, YouTube Music and other subscriptions can’t be saved as files: it’s locked to their apps. Only songs you <b>buy</b> as downloads (not rent through a subscription) can be added.'));
   if (where === 'buy') {
     const q = encodeURIComponent(arg || '');
-    return setView(back, '<h1>Buy music to keep</h1>', `<p class="muted">These shops sell songs and albums as downloads that are yours forever: no subscription, offline, on any device. Search below, buy, download, then add them to Seylumi (see <a href="#/getmusic/bought">Music I bought online</a>).</p>`,
+    return setView(back, '<h1>Buy music to keep</h1>', para('These shops sell songs and albums as downloads that are yours forever: no subscription, offline, on any device. Search below, buy, download, then add them to Seylumi (see <a href="#/getmusic/bought">Music I bought online</a>).'),
       `<form class="inline-search" data-form="buy"><label class="searchbox">${ic('search')}<input name="q" type="search" placeholder="Song, artist or album" value="${esc(arg || '')}" autocomplete="off" aria-label="Song, artist or album"></label></form>`,
-      `<div class="gm-stores">${STORES.map(st => `<a class="gm-store" href="${esc(q ? st.url(q) : st.url('').replace(/[?&][^?&]*=$/, '').replace(/\/search.*$/, '/'))}" target="_blank" rel="noopener"><b>${esc(st.name)}</b><span>${esc(st.desc)}</span>${q ? `<em>Search “${esc(arg)}” ↗</em>` : '<em>Open shop ↗</em>'}</a>`).join('')}</div>`,
-      `<p class="muted" style="font-size:13px">Not every shop sells to every country. If one doesn’t work for you, try another.</p>`);
+      `<div class="gm-stores">${STORES.map(st => `<a class="gm-store" href="${esc(q ? st.url(q) : st.home)}" target="_blank" rel="noopener"><b translate="no">${esc(st.name)}</b><span>${esc(st.desc)}</span>${q ? `<em>Search “<span translate="no">${esc(arg)}</span>” ↗</em>` : '<em>Open shop ↗</em>'}</a>`).join('')}</div>`,
+      `<p class="muted" style="font-size:13px">You pay the shop directly. Seylumi doesn’t sell music or take any of the money.</p>`);
   }
   if (where === 'pack') {
     const p = PACKS.find(x => x.id === arg); if (!p) return setView(back, '<div class="empty">Not found.</div>');
-    setView(back, `<div class="hero"><div class="art mix-art" style="background:linear-gradient(135deg,${p.bg})">${ic('note')}</div><div class="hero-text"><div class="kind">Free starter pack</div><h1>${esc(p.name)}</h1><div class="muted" id="pk-info">Finding songs…</div><div class="hero-actions" id="pk-act"></div></div></div>`,
-      `<p class="muted" style="font-size:13px">${p.pd ? 'Classical recordings in the public domain, free for everyone.' : 'Shared by independent artists under Creative Commons licences, free to download and keep for personal listening.'} From the Internet Archive.</p><div id="pk-list"></div>`);
+    setView(back, `<div class="hero"><div class="art mix-art" style="background:linear-gradient(135deg,${p.bg})">${ic('note')}</div><div class="hero-text"><div class="kind">Free starter pack</div><h1 data-tr>${esc(p.name)}</h1><div class="muted" id="pk-info">Finding songs…</div><div class="hero-actions" id="pk-act"></div></div></div>`,
+      `<p class="muted" style="font-size:13px">${p.pd ? 'Classical recordings in the public domain, free for everyone. From the Internet Archive.' : 'Shared by independent artists under Creative Commons licences, free to download and keep for personal listening. From the Internet Archive.'}</p><div id="pk-list"></div>`);
     const here = location.hash;
     packSongs(p).then(songs => {
       if (location.hash !== here) return;
       if (!songs.length) { $('#pk-info').textContent = navigator.onLine ? 'Couldn’t find songs right now. Try again later.' : 'Connect to the internet to see this pack.'; return; }
-      const mins = Math.round(songs.reduce((a, t) => a + (t.duration || 240), 0) / 60), mb = Math.round(songs.reduce((a, t) => a + (t.duration || 240), 0) * 16 / 1024);
-      $('#pk-info').textContent = `${songs.length} songs · ${mins} min · about ${mb} MB`;
+      const secs = songs.reduce((a, t) => a + (t.duration || 240), 0);
+      $('#pk-info').textContent = `${songs.length} songs · ${Math.round(secs / 60)} min · about ${Math.round(secs * 16 / 1024)} MB`;
       $('#pk-act').innerHTML = `<button class="btn primary" data-act="add-pack" data-id="${p.id}">${ic('save')}Add to my library</button>`;
       viewIds = songs.map(t => t.id);
       const el = $('#pk-list'); el.innerHTML = '<h2>What’s inside (tap to listen first)</h2>'; el.append(trackList(viewIds));
@@ -1837,8 +1844,8 @@ function getMusicView(where, arg) {
   // the start: where is your music?
   const card = (href, icon, title, sub) => `<a class="gm-card" href="${href}"><span class="gm-ic">${ic(icon)}</span><span><b>${title}</b><small>${sub}</small></span></a>`;
   setView('<h1>Get your music in</h1>', '<p class="muted">Where is your music now?</p>',
-    `<div class="gm-cards">${card('#/getmusic/phone', 'folder', `On this ${P === 'computer' ? 'computer' : 'phone'}`, 'Songs already saved here')}${P !== 'computer' ? card('#/getmusic/computer', 'library', 'On my computer', 'Get it from a laptop or PC') : ''}${card('#/getmusic/bought', 'save', 'I bought music online', 'Downloads from shops like Bandcamp or Amazon')}${card('#/getmusic/buy', 'heart', 'Buy music to keep', 'Chart hits and favourite artists, yours forever')}</div>`,
-    `<h2>No music yet? Start with a free pack</h2><p class="muted" style="margin-top:-6px">Free, legal music to keep, added in one tap.</p>`,
+    `<div class="gm-cards">${card('#/getmusic/phone', 'folder', dev === 'computer' ? 'On this computer' : 'On this phone', 'Songs already saved here')}${P !== 'computer' ? card('#/getmusic/computer', 'library', 'On my computer', 'Get it from a laptop or PC') : ''}${card('#/getmusic/bought', 'save', 'I bought music online', 'Downloads from shops like Bandcamp or 7digital')}${card('#/getmusic/buy', 'heart', 'Buy music to keep', 'Chart hits and favourite artists, yours forever')}</div>`,
+    `<h2 id="free-packs">No music yet? Start with a free pack</h2><p class="muted" style="margin-top:-6px">Free, legal music to keep, added in one tap.</p>`,
     `<div class="grid">${PACKS.map(p => `<a class="card" href="#/getmusic/pack/${p.id}"><div class="art mix-art" style="background:linear-gradient(135deg,${p.bg})">${ic('note')}</div><div class="card-title" data-tr>${p.name}</div><div class="card-sub" data-tr>Free · about 12 songs</div></a>`).join('')}</div>`);
 }
 
@@ -2912,8 +2919,9 @@ const artistCard = ar => `<a class="card artist" href="#/artist/${encodeURICompo
 const total = ts => { const s = ts.reduce((a, t) => a + (t.duration || 0), 0); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return `${ts.length} song${ts.length === 1 ? '' : 's'}${s ? ` · ${h ? h + ' hr ' : ''}${m} min` : ''}`; };
 const emptyLib = () => `<div class="empty"><h1>Your music, offline</h1>
   <p>Add the music files stored on this device. They stay on the device and play with no internet connection.</p>
-  <div class="hero-actions"><button class="btn primary" data-act="add-files">${ic('file')}Add files</button>
-  ${isDesktop() ? `<button class="btn" data-act="add-folder">${ic('folder')}Add a folder</button>` : ''}</div>
+  <div class="hero-actions"><a class="btn primary" href="#/getmusic">${ic('plus')}Get your music in</a><button class="btn" data-act="add-files">${ic('file')}Add files</button>
+  ${window.showDirectoryPicker ? `<button class="btn" data-act="add-folder">${ic('folder')}Link a folder</button>` : ''}</div>
+  <p style="margin-top:14px">No music yet? <a href="#/getmusic" style="color:var(--accent)">Get free music to keep</a></p>
   <p style="margin-top:18px;font-size:13px">Works with MP3, M4A/AAC, FLAC, WAV, OGG and Opus.</p>
   <p style="font-size:13px"><a href="welcome.html" style="color:var(--accent)">New to Seylumi? See what it can do</a></p></div>`;
 const heroActions = (extra = '') => `<div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play</button><button class="btn" data-act="shuffle-view">${ic('shuffle')}Shuffle</button>${extra}</div>`;
@@ -2937,7 +2945,7 @@ const VIEWS = {
     setView(
       '<div id="news"></div>',
       `<h1>${hr < 5 ? 'Late night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'}</h1>
-       <div class="muted">${total(ts)} in your library</div>${heroActions(`<a class="btn" href="#/stats">${ic('chart')}Your stats</a>`).replace('Play<', 'Play all<')}`,
+       <div class="muted">${total(ts)} in your library</div><a href="#/getmusic" class="gm-more">${ic('plus')}Get more music</a>${heroActions(`<a class="btn" href="#/stats">${ic('chart')}Your stats</a>`).replace('Play<', 'Play all<')}`,
       '<div id="mfy"></div>', '<div id="nfy"></div>',
       recent.length ? `<h2>Jump back in</h2><div class="tiles">${recent.map(t => `<button class="tile" data-act="play-recent" data-id="${t.id}">${artDiv(t.artId, t.album || t.title)}<span>${esc(t.title)}</span></button>`).join('')}</div>` : '',
       `<h2>Recently added</h2><div class="grid">${newest.map(albumCard).join('')}</div>`,
@@ -3382,6 +3390,9 @@ const A = {
   'add-music': (el, e) => openMenu([
     { label: 'Add files', icon: 'file', fn: () => $('#file-input').click() },
     (window.showDirectoryPicker || isDesktop()) && { label: window.showDirectoryPicker ? 'Link a folder' : 'Add a folder', icon: 'folder', fn: addFolder },
+    { label: 'Help me add my music', icon: 'text', fn: () => nav('#/getmusic') },
+    { label: 'Free music packs', icon: 'note', fn: () => nav('#/getmusic') },
+    { label: 'Buy music to keep', icon: 'heart', fn: () => nav('#/getmusic/buy') },
   ], e, 'Add music'),
   'add-files': () => $('#file-input').click(),
   'add-folder': addFolder,

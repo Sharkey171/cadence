@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.github.sharkey171.seylumi",
+    "sha256_cert_fingerprints": [
+      "B3:79:1E:9C:50:CE:45:6D:7D:7D:15:E0:2C:2A:D3:C8:3D:C4:8F:98:FB:9A:1B:07:DC:D3:D8:A3:77:A1:65:A3"
+    ]
+  }
+}]

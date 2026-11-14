@@ -9,8 +9,8 @@ Everything Google Play Console asks for when you create the listing. Copy and pa
 - **Category:** Music & Audio
 - **Free or paid:** Free
 - **Contains ads:** No (videos played from YouTube show YouTube's own adverts)
-- **Website:** https://sharkey171.github.io/cadence/
-- **Privacy policy:** https://sharkey171.github.io/cadence/privacy.html
+- **Website:** https://seylumi.ie/
+- **Privacy policy:** https://seylumi.ie/privacy.html
 
 ## Short description (80 characters max)
 

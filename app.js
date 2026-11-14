@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 56, date: '2026-11-14', notes: ['Podcasts: choose the country for the Top 50 charts and search (over 60 countries)', 'Seylumi now guesses your country better, so Irish phones set to UK English get Irish charts and radio'] },
   { v: 55, date: '2026-11-14', notes: ['Get your music in: a step-by-step guide for adding music from your phone, computer or online purchases', 'Free music packs to keep (chill, classical, acoustic, piano, jazz, rock, electronic, hip hop), added in one tap', 'Buy music to keep: search Bandcamp, 7digital and Qobuz for songs you own forever'] },
   { v: 49, date: '2026-11-13', notes: ['Linked music folders: no more hunting for the Reconnect button. Tap anything (like a song) and choose Allow, and it plays straight away'] },
   { v: 47, date: '2026-11-13', notes: ['Fixed: Song radio from the Now Playing menu could close Seylumi or jump to the welcome page'] },
@@ -2003,7 +2004,18 @@ let yearBlob = null;
 /* ---------------- online: free podcasts + live radio ---------------- */
 const safeUrl = u => /^https:\/\//i.test(u || '') ? u.replace(/['"\\()\s<>]/g, c => '%' + c.charCodeAt(0).toString(16)) : '';
 function reg(item) { S.remote.set(item.id, item); const u = safeUrl(item.art); if (u) S.artUrls.set(item.artId, u); return item; }
-const CC = (() => { for (const l of navigator.languages || [navigator.language || '']) { const m = /-([A-Za-z]{2})\b/.exec(l); if (m) return m[1].toUpperCase(); } return 'US'; })();
+const TZ_CC = { 'Europe/Dublin': 'IE', 'Europe/Belfast': 'GB', 'Europe/London': 'GB', 'Europe/Berlin': 'DE', 'Europe/Paris': 'FR', 'Europe/Madrid': 'ES', 'Atlantic/Canary': 'ES', 'Europe/Rome': 'IT', 'Europe/Warsaw': 'PL', 'Europe/Lisbon': 'PT', 'Europe/Amsterdam': 'NL', 'Europe/Brussels': 'BE', 'Europe/Luxembourg': 'LU', 'Europe/Vienna': 'AT', 'Europe/Zurich': 'CH', 'Europe/Stockholm': 'SE', 'Europe/Oslo': 'NO', 'Europe/Copenhagen': 'DK', 'Europe/Helsinki': 'FI', 'Atlantic/Reykjavik': 'IS', 'Europe/Prague': 'CZ', 'Europe/Bratislava': 'SK', 'Europe/Budapest': 'HU', 'Europe/Bucharest': 'RO', 'Europe/Sofia': 'BG', 'Europe/Athens': 'GR', 'Europe/Zagreb': 'HR', 'Europe/Ljubljana': 'SI', 'Europe/Tallinn': 'EE', 'Europe/Riga': 'LV', 'Europe/Vilnius': 'LT', 'Europe/Malta': 'MT', 'Asia/Nicosia': 'CY', 'Europe/Istanbul': 'TR', 'Europe/Kyiv': 'UA', 'Europe/Kiev': 'UA', 'Asia/Jerusalem': 'IL', 'Asia/Dubai': 'AE', 'Asia/Riyadh': 'SA', 'Africa/Cairo': 'EG', 'Africa/Lagos': 'NG', 'Africa/Nairobi': 'KE', 'Africa/Accra': 'GH', 'Africa/Johannesburg': 'ZA', 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN', 'Asia/Tokyo': 'JP', 'Asia/Seoul': 'KR', 'Asia/Hong_Kong': 'HK', 'Asia/Taipei': 'TW', 'Asia/Singapore': 'SG', 'Asia/Kuala_Lumpur': 'MY', 'Asia/Manila': 'PH', 'Asia/Bangkok': 'TH', 'Asia/Jakarta': 'ID', 'Asia/Ho_Chi_Minh': 'VN', 'Pacific/Auckland': 'NZ', 'America/Sao_Paulo': 'BR', 'America/Mexico_City': 'MX', 'America/Argentina/Buenos_Aires': 'AR', 'America/Buenos_Aires': 'AR', 'America/Santiago': 'CL', 'America/Bogota': 'CO', 'America/Lima': 'PE', 'America/Toronto': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA', 'America/Winnipeg': 'CA', 'America/Halifax': 'CA', 'America/St_Johns': 'CA' };
+const CC = (() => {
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; if (TZ_CC[tz]) return TZ_CC[tz]; if (tz.startsWith('Australia/')) return 'AU'; } catch {}
+  for (const l of navigator.languages || [navigator.language || '']) { const m = /-([A-Za-z]{2})\b/.exec(l); if (m) return m[1].toUpperCase(); }
+  return 'US';
+})();
+// Countries with Apple podcast charts (shown in the Podcasts country menu)
+const POD_CCS = ['IE', 'GB', 'US', 'CA', 'AU', 'NZ', 'ZA', 'IN', 'DE', 'AT', 'CH', 'FR', 'BE', 'NL', 'LU', 'ES', 'PT', 'IT', 'PL', 'CZ', 'SK', 'HU', 'RO', 'BG', 'GR', 'HR', 'SI', 'SE', 'NO', 'DK', 'FI', 'IS', 'EE', 'LV', 'LT', 'MT', 'CY', 'TR', 'UA', 'IL', 'AE', 'SA', 'EG', 'NG', 'KE', 'GH', 'BR', 'MX', 'AR', 'CL', 'CO', 'PE', 'JP', 'KR', 'HK', 'TW', 'SG', 'MY', 'PH', 'TH', 'ID', 'VN'];
+const podCC = () => S.podCC || (POD_CCS.includes(CC) ? CC : 'US');
+// Irish names, since some phones have no built-in Irish country names
+const CC_GA = Object.fromEntries('IE:Éire|GB:An Ríocht Aontaithe|US:Stáit Aontaithe Mheiriceá|CA:Ceanada|AU:An Astráil|NZ:An Nua-Shéalainn|ZA:An Afraic Theas|IN:An India|DE:An Ghearmáin|AT:An Ostair|CH:An Eilvéis|FR:An Fhrainc|BE:An Bheilg|NL:An Ísiltír|LU:Lucsamburg|ES:An Spáinn|PT:An Phortaingéil|IT:An Iodáil|PL:An Pholainn|CZ:An tSeicia|SK:An tSlóvaic|HU:An Ungáir|RO:An Rómáin|BG:An Bhulgáir|GR:An Ghréig|HR:An Chróit|SI:An tSlóivéin|SE:An tSualainn|NO:An Iorua|DK:An Danmhairg|FI:An Fhionlainn|IS:An Íoslainn|EE:An Eastóin|LV:An Laitvia|LT:An Liotuáin|MT:Málta|CY:An Chipir|TR:An Tuirc|UA:An Úcráin|IL:Iosrael|AE:Aontas na nÉimíríochtaí Arabacha|SA:An Araib Shádach|EG:An Éigipt|NG:An Nigéir|KE:An Chéinia|GH:Gána|BR:An Bhrasaíl|MX:Meicsiceo|AR:An Airgintín|CL:An tSile|CO:An Cholóim|PE:Peiriú|JP:An tSeapáin|KR:An Chóiré Theas|HK:Hong Cong|TW:An Téaváin|SG:Singeapór|MY:An Mhalaeisia|PH:Na hOileáin Fhilipíneacha|TH:An Téalainn|ID:An Indinéis|VN:Vítneam'.split('|').map(x => x.split(':')));
+const ccName = cc => { if (LANG === 'ga' && CC_GA[cc]) return CC_GA[cc]; try { return new Intl.DisplayNames([LANG], { type: 'region' }).of(cc) || cc; } catch { return cc; } };
 const offlineNote = what => `<div class="empty">${navigator.onLine ? `Couldn't reach the ${what} directory. Try again in a moment.` : `You're offline. Connect to the internet to browse ${what}.`}</div>`;
 const searchForm = (kind, value, placeholder) => `<form class="inline-search" data-form="${kind}"><label class="searchbox">${ic('search')}<input name="q" type="search" placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" aria-label="${placeholder}"></label><button class="btn">Search</button></form>`;
 const onlineChips = tab => `<div class="chips"><a class="chip ${tab === 'podcasts' ? 'active' : ''}" href="#/online/podcasts">Podcasts</a><a class="chip ${tab === 'radio' ? 'active' : ''}" href="#/online/radio">Radio</a><a class="chip ${tab === 'music' ? 'active' : ''}" href="#/online/music">Free music</a><a class="chip ${tab === 'youtube' ? 'active' : ''}" href="#/online/youtube">YouTube</a></div>`;
@@ -2019,10 +2031,10 @@ const POD_GENRES = [['', 'All'], ['1303', 'Comedy'], ['1489', 'News'], ['1488', 
   ['1314', 'Religion & Spirituality'], ['1511', 'Government']];
 const chartMem = new Map();
 async function loadTopPods(genre = '') {
-  const key = `chart:${CC}:${genre}`;
+  const pc = podCC(), key = `chart:${pc}:${genre}`;
   const mem = chartMem.get(key); if (mem && Date.now() - mem.at < 3 * 3600e3) return mem.list;
   try {
-    const d = await fetchJSON(`https://itunes.apple.com/${CC.toLowerCase()}/rss/toppodcasts/limit=50${genre ? `/genre=${genre}` : ''}/json`);
+    const d = await fetchJSON(`https://itunes.apple.com/${pc.toLowerCase()}/rss/toppodcasts/limit=50${genre ? `/genre=${genre}` : ''}/json`);
     const list = (d.feed?.entry || []).map(e => ({ id: e.id?.attributes?.['im:id'], name: e['im:name']?.label, author: e['im:artist']?.label, art: e['im:image']?.at(-1)?.label })).filter(p => p.id && p.name);
     if (!list.length) throw new Error('empty chart');
     const v = { at: Date.now(), list }; chartMem.set(key, v); idb.put('kv', v, key).catch(() => {});
@@ -2035,10 +2047,11 @@ async function loadTopPods(genre = '') {
 }
 const rankCard = (p, i) => podCard(p).replace('<a class="card"', `<a class="card ranked" data-rank="${i + 1}"`);
 async function searchPods(q) {
-  if (podSearchMem.has(q)) return podSearchMem.get(q);
-  const d = await fetchJSON('https://itunes.apple.com/search?' + new URLSearchParams({ term: q, media: 'podcast', entity: 'podcast', limit: 30 }));
+  const key = podCC() + '|' + q;
+  if (podSearchMem.has(key)) return podSearchMem.get(key);
+  const d = await fetchJSON('https://itunes.apple.com/search?' + new URLSearchParams({ term: q, media: 'podcast', entity: 'podcast', limit: 30, country: podCC() }));
   const r = (d.results || []).filter(x => x.collectionId && x.collectionName).map(podFrom);
-  podSearchMem.set(q, r); return r;
+  podSearchMem.set(key, r); return r;
 }
 const hashStr = str => { let h = 5381; for (const c of String(str)) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0; return h.toString(36); };
 // Read a podcast straight from its RSS feed. Works for any show whose host lets web apps read the feed.
@@ -2143,7 +2156,9 @@ async function podcastsView() {
   } else {
     const g = S.podGenre, label = POD_GENRES.find(x => x[0] === g)?.[1] || 'All';
     const chips = `<div class="chips pod-genres">${POD_GENRES.map(([id, n]) => `<button class="chip ${id === g ? 'active' : ''}" data-act="pod-genre" data-g="${id}">${esc(n)}</button>`).join('')}</div>`;
-    const head = `<h2>Top 50${g ? ` in ${esc(label)}` : ''}</h2><p class="muted" style="margin:-6px 0 10px">The most popular podcasts in ${esc(regionName || 'your country')} right now, from Apple's charts.</p>`;
+    const pc = podCC(), opts = POD_CCS.map(c => [c, ccName(c)]).sort((a, b) => a[1].localeCompare(b[1], LANG));
+    const sel = `<select id="pod-cc" class="pod-cc" aria-label="Country">${opts.map(([c, n]) => `<option value="${c}" translate="no" ${c === pc ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+    const head = `<div class="pod-head"><h2>Top 50${g ? ` in ${esc(label)}` : ''}</h2>${sel}</div><p class="muted" style="margin:-6px 0 10px">The most popular podcasts in ${esc(ccName(pc))} right now, from Apple's charts.</p>`;
     fill('#pod-top', head + chips + '<p class="muted">Loading the chart…</p>');
     try { const top = await loadTopPods(g); fill('#pod-top', head + chips + (top.length ? `<div class="grid">${top.map(rankCard).join('')}</div>` : '<div class="empty">No chart for this category right now.</div>')); }
     catch { fill('#pod-top', head + chips + (navigator.onLine ? '<div class="empty">Couldn\'t load this chart. Try again in a moment.</div>' : offlineNote('podcast'))); }
@@ -2265,6 +2280,7 @@ async function addStation() {
 view.addEventListener('change', async e => {
   if (e.target.dataset.set === 'lang') { try { localStorage.setItem('cadence-lang', e.target.value); } catch {} location.reload(); return; }
   if (e.target.dataset.set === 'minSecs') { S.hide.minSecs = +e.target.value; await idb.put('kv', S.hide, 'hide'); rebuild(); rerender(); toast(S.hide.minSecs ? 'Short clips hidden' : 'All lengths shown'); return; }
+  if (e.target.id === 'pod-cc') { S.podCC = e.target.value; idb.put('kv', S.podCC, 'podCC').catch(() => {}); rerender(); return; }
   if (e.target.id === 'rad-cc') { S.radCC = e.target.value; saveRadioPrefs(); rerender(); } });
 async function radioView() {
   const here = location.hash, favs = S.stations.map(x => x.id);
@@ -3695,6 +3711,7 @@ async function boot() {
   S.ia = await idb.get('kv', 'iaSaved') || [];
   { const hd = await idb.get('kv', 'hide'); if (hd) S.hide = { folders: Array.isArray(hd.folders) ? hd.folders : [], minSecs: +hd.minSecs || 0 }; }
   S.podGenre = await idb.get('kv', 'podGenre') || '';
+  S.podCC = await idb.get('kv', 'podCC') || null;
   S.hist = await idb.get('kv', 'hist') || [];
   { const fx = await idb.get('kv', 'fx'); if (fx) S.fx = { ...S.fx, ...fx, bands: Array.isArray(fx.bands) && fx.bands.length === 5 ? fx.bands : S.fx.bands }; }
   smartShuffleOn = S.fx.smartShuffle !== false;

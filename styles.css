@@ -663,4 +663,14 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 #tour .tour-art svg { width: 46px; height: 46px; }
 #tour h3 { font-size: 22px; margin: 0 0 8px; } #tour p { line-height: 1.5; min-height: 4.5em; margin: 0 0 12px; }
 .tour-dots { display: flex; justify-content: center; gap: 7px; margin-bottom: 16px; } .tour-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line, #3a3a46); } .tour-dots i.on { background: var(--accent); width: 20px; border-radius: 4px; }
-#tour .dlg-btns { justify-content: center; }
+#tour .dlg-btns { justify-content: center; flex-direction: row-reverse; }
+
+/* tidy my library */
+.tidy-bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 8px 0; margin-bottom: 4px; }
+.tidy-list { display: grid; gap: 6px; }
+.tidy-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--panel); cursor: pointer; }
+.tidy-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+.tidy-ch { display: grid; gap: 4px; min-width: 0; } .tidy-f { display: grid; } .tidy-f small, .tidy-song { color: var(--muted); font-size: 12px; }
+.tidy-f s { color: var(--muted); } .tidy-f b { color: var(--text); } .tidy-f span { overflow-wrap: anywhere; }
+.tidy-more { display: grid; gap: 10px; } .tidy-card { display: grid; gap: 6px; justify-items: start; padding: 14px 16px; border-radius: 14px; background: var(--panel); } .tidy-card span { color: var(--muted); font-size: 14px; }
+.tidy-done { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, #3ddc84 16%, var(--panel)); margin-bottom: 10px; } .tidy-done svg { width: 20px; height: 20px; color: #3ddc84; }

@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 66;
+const APP_VERSION = 67;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 67, date: '2026-11-15', notes: ['Tidy my library (Settings): cleans up messy song names, fills in missing artists, unifies artist spellings and looks up missing albums, years and genres. You approve every fix, and it can be undone', 'A welcome tour for people opening Seylumi for the first time'] },
   { v: 65, date: '2026-11-15', notes: ['Add music from Google Drive: + → From Google Drive shows how to pick songs from your Drive'] },
   { v: 62, date: '2026-11-15', notes: ['Fixed: timed lyrics could come from a different version of a song (for example a live recording), so they ran ahead of the music'] },
   { v: 56, date: '2026-11-14', notes: ['Podcasts: choose the country for the Top 50 charts and search (over 60 countries)', 'Seylumi now guesses your country better, so Irish phones set to UK English get Irish charts and radio'] },
@@ -229,6 +230,16 @@ const TR_PATTERNS = [
   [/^Lyrics moved later by ([\d.]+) s$/, m => P('kofsl', { x: m[1] })],
   [/^Lyrics moved earlier by ([\d.]+) s$/, m => P('kofse', { x: m[1] })],
   [/^Your song is (\d+:\d\d) long$/, m => P('songlen', { x: m[1] })],
+  [/^Apply (\d+) fix(?:es)?$/, m => P('tapply', { n: m[1] })],
+  [/^Tidied (\d+) songs?\.?$/, m => P('tdone', { n: m[1] })],
+  [/^(\d+) songs? with no album, year or genre$/, m => P('tmiss', { n: m[1] })],
+  [/^(\d+) albums? with no cover$/, m => P('tcov', { n: m[1] })],
+  [/^(\d+) duplicate songs?$/, m => P('tdup', { n: m[1] })],
+  [/^(\d+) more are included when you press Apply\.$/, m => P('tmore', { n: m[1] })],
+  [/^Looking up song details… (\d+) \/ (\d+) · (\d+) found$/, m => P('tlook', { a: m[1], b: m[2], c: m[3] })],
+  [/^Found details for (\d+) songs?$/, m => P('tfound', { n: m[1] })],
+  [/^Put (\d+) songs? back as (?:it was|they were)$/, m => P('tundo', { n: m[1] })],
+  [/^(\d+) songs? (?:is|are) still being read and will be checked afterwards\.$/, m => P('tpend', { n: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1876,6 +1887,110 @@ async function newForYou() {
   return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
 }
 
+/* ---------------- tidy my library ---------------- */
+// Suggests fixes for messy song details. Nothing changes until the person presses Apply, and Apply can be undone.
+const TIDY_JUNK = /\s*[(\[][^)\]]*\b(official|lyrics?|lyric video|audio|video|hd|hq|4k|\d{3}\s?kbps|visuali[sz]er|full song|with lyrics)\b[^)\]]*[)\]]/gi;
+const noArtist = a => !a || /^(unknown( artist)?|various|n\/?a|artist)$/i.test(a.trim());
+function tidyTitle(raw) {
+  let t = String(raw || '');
+  t = t.replace(/\.(mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|wma|weba)$/i, '');
+  if (!/\s/.test(t) && /_/.test(t)) t = t.replace(/_/g, ' ');
+  t = t.replace(/\s*[-–]?\s*(www\.)?[a-z0-9-]+\.(com|net|org|co|info|me|cc|ws)\b\s*/gi, ' ');
+  t = t.replace(TIDY_JUNK, '');
+  // leading track numbers: "01 - Song", "1-03. Song", "03 Song" (zero-padded only, so "99 Problems" stays)
+  let m = /^(?:\d{1,2}[-.]\d{1,2}|\d{1,3})\s*[-–._)]\s*(\S.*)$/.exec(t) || /^0\d\s+(\S.*)$/.exec(t);
+  if (m && /[A-Za-zÀ-￿]/.test(m[1])) t = m[1];
+  return t.replace(/\s{2,}/g, ' ').replace(/^[\s\-–_.]+|[\s\-–_]+$/g, '').trim();
+}
+function tidyScan() {
+  const fixes = [], add = (t, kind, to) => {
+    const ch = {}; for (const k in to) if (to[k] != null && String(to[k]) !== String(t[k] ?? '')) ch[k] = to[k];
+    if (Object.keys(ch).length) fixes.push({ id: t.id, kind, to: ch });
+  };
+  const songs = [...S.tracks.values()].filter(t => !t.tagsPending);
+  // how each artist name is usually spelled
+  const spell = new Map();
+  const akey = a => norm(a).replace(/^the\s+/, '').replace(/[^a-z0-9À-￿]+/g, '');
+  for (const t of songs) if (!noArtist(t.artist)) { const k = akey(t.artist); if (!k) continue; const m = spell.get(k) || spell.set(k, new Map()).get(k); m.set(t.artist, (m.get(t.artist) || 0) + 1); }
+  const best = new Map();
+  for (const [k, m] of spell) if (m.size > 1) best.set(k, [...m.entries()].sort((a, b) => b[1] - a[1] || (/[A-Z]/.test(b[0]) - /[A-Z]/.test(a[0])) || b[0].length - a[0].length)[0][0]);
+  for (const t of songs) {
+    let title = tidyTitle(t.title), artist = t.artist || '';
+    // "Artist - Song" hiding in the title
+    const m = /^(.{2,60}?)\s+[-–]\s+(\S.*)$/.exec(title);
+    if (m) {
+      if (noArtist(artist)) { add(t, 'artist', { artist: m[1].trim(), title: m[2].trim() }); continue; }
+      if (akey(m[1]) === akey(artist)) title = m[2].trim();
+    }
+    if (title && title !== t.title) { add(t, 'name', { title }); continue; }
+    const k = akey(artist), b = best.get(k);
+    if (b && b !== artist) add(t, 'spelling', { artist: b });
+  }
+  return fixes;
+}
+let tidy = null;   // { fixes, off: Set of fix indexes unticked, undo: [{ id, before }] }
+function tidyMissing() { return [...S.tracks.values()].filter(t => !t.tagsPending && !noArtist(t.artist) && t.title && (!t.album || !t.year || !t.genre)); }
+async function tidyApply() {
+  if (!tidy) return;
+  const chosen = tidy.fixes.filter((f, i) => !tidy.off.has(i)); if (!chosen.length) return;
+  const undo = [];
+  for (const f of chosen) {
+    const t = S.tracks.get(f.id); if (!t) continue;
+    const before = {}; for (const k in f.to) before[k] = t[k] ?? (k === 'year' ? null : '');
+    undo.push({ id: t.id, before });
+    await tidySet(t, f.to);
+  }
+  rebuild(); syncPlayer();
+  tidy = { fixes: tidyScan(), off: new Set(), undo, done: undo.length };
+  idb.put('kv', undo.slice(0, 5000), 'tidyUndo').catch(() => {});
+  toast(`Tidied ${undo.length} song${undo.length === 1 ? '' : 's'}`); rerender();
+}
+async function tidySet(t, to) {
+  const oldArt = t.artId, named = to.title != null || to.artist != null;
+  Object.assign(t, to);
+  t.albumKey = `${norm(t.albumArtist || t.artist)}::${norm(t.album)}`;
+  t.artId = t.album ? t.albumKey : `t::${t.id}`;
+  if (t.artId !== oldArt && !S.artUrls.has(t.artId)) { const b = await idb.get('art', oldArt).catch(() => null); if (b) { await idb.put('art', b, t.artId); S.artUrls.set(t.artId, URL.createObjectURL(b)); } }
+  await idb.put('tracks', t);
+  if (named) { coverTried.delete(t.artId); idb.del('kv', 'lyr:' + t.id).catch(() => {}); }
+}
+async function tidyUndo() {
+  const undo = tidy?.undo || await idb.get('kv', 'tidyUndo').catch(() => null); if (!undo?.length) return;
+  let n = 0; for (const u of undo) { const t = S.tracks.get(u.id); if (t) { await tidySet(t, u.before); n++; } }
+  idb.del('kv', 'tidyUndo').catch(() => {});
+  rebuild(); syncPlayer(); tidy = null; toast(`Put ${n} song${n === 1 ? '' : 's'} back as ${n === 1 ? 'it was' : 'they were'}`); rerender();
+}
+// Albums, years and genres from the online catalogue, only when the artist, title and length all match.
+let tidyLooking = false;
+async function tidyLookup() {
+  if (tidyLooking || !tidy) return;
+  if (!onlineOK()) return toast(navigator.onLine ? 'Turn on online lookups in Settings first' : 'Connect to the internet to look up details');
+  const have = new Set(tidy.fixes.filter(f => f.kind === 'online').map(f => f.id)), tried = tidy.tried ||= new Set();
+  const todo = tidyMissing().filter(t => !have.has(t.id) && !tried.has(t.id)).slice(0, 25);
+  if (!todo.length) return toast('Nothing more to look up');
+  tidyLooking = true; let found = 0, stop = false;
+  for (let i = 0; i < todo.length && !stop && page() === 'tidy'; i++) {
+    const t = todo[i]; tried.add(t.id);
+    setBanner(`<span>Looking up song details… ${i + 1} / ${todo.length} · ${found} found</span><div class="bar"><i style="width:${(i + 1) / todo.length * 100}%"></i></div><button class="btn" id="tidy-stop">Stop</button>`);
+    $('#tidy-stop').onclick = () => { stop = true; };
+    try {
+      const res = await coverSearch(`${t.artist} ${cleanTitle(t.title)}`, 'song');
+      const tk = norm(cleanTitle(t.title));
+      const hit = res.find(r => sameArtist(r.artistName, t.artist) && norm(cleanTitle(r.trackName)) === tk && (!t.duration || !r.trackTimeMillis || Math.abs(r.trackTimeMillis / 1000 - t.duration) < 5));
+      if (hit) {
+        const to = {};
+        if (!t.album && hit.collectionName) to.album = String(hit.collectionName).replace(/\s+-\s+(Single|EP)$/i, '');
+        if (!t.year && hit.releaseDate) to.year = +String(hit.releaseDate).slice(0, 4) || null;
+        if (!t.genre && hit.primaryGenreName) to.genre = hit.primaryGenreName;
+        if (Object.keys(to).length) { tidy.fixes.push({ id: t.id, kind: 'online', to }); found++; }
+      }
+    } catch (e) { console.warn('tidy lookup', e); }
+  }
+  tidyLooking = false; setBanner('');
+  toast(found ? `Found details for ${found} song${found === 1 ? '' : 's'}` : 'No matching details found');
+  if (page() === 'tidy') rerender();
+}
+
 /* ---------------- welcome tour (first launch) ---------------- */
 // Four short slides for someone opening Seylumi for the first time. Shown once; replay from Settings > About.
 const TOUR = [
@@ -2535,6 +2650,7 @@ async function addStation() {
   await idb.put('kv', S.stations, 'stations'); toast('Station added to your favourites'); rerender();
 }
 view.addEventListener('change', async e => {
+  if (e.target.dataset.tidy != null && tidy) { const i = +e.target.dataset.tidy; e.target.checked ? tidy.off.delete(i) : tidy.off.add(i); const b = $('[data-act=tidy-apply]'), n = tidy.fixes.length - tidy.off.size; if (b) { b.disabled = !n; b.innerHTML = `${ic('check')}Apply ${n} fix${n === 1 ? '' : 'es'}`; } return; }
   if (e.target.dataset.set === 'lang') { try { localStorage.setItem('cadence-lang', e.target.value); } catch {} location.reload(); return; }
   if (e.target.dataset.set === 'minSecs') { S.hide.minSecs = +e.target.value; await idb.put('kv', S.hide, 'hide'); rebuild(); rerender(); toast(S.hide.minSecs ? 'Short clips hidden' : 'All lengths shown'); return; }
   if (e.target.id === 'pod-cc') { S.podCC = e.target.value; idb.put('kv', S.podCC, 'podCC').catch(() => {}); rerender(); return; }
@@ -3243,6 +3359,32 @@ const VIEWS = {
       <div class="muted">${esc(mixSub(m))} · ${total(viewIds.map(T))}</div><p class="muted" style="margin:4px 0 0">New mixes every day, from your own music.</p>${heroActions(`<button class="btn" data-act="save-daily" data-i="${+i}">${ic('plus')}Save as playlist</button>`)}</div></div>`, trackList(viewIds));
   },
   getmusic(where, arg) { return getMusicView(where, arg); },
+  async tidy() {
+    viewIds = [];
+    if (!S.tracks.size) return setView('<h1>Tidy my library</h1><div class="empty">Add some music first.</div>');
+    if (!tidy) tidy = { fixes: tidyScan(), off: new Set(), undo: null };
+    const F = tidy.fixes, KINDS = [['name', 'Clean up song names'], ['artist', 'Fill in missing artists'], ['spelling', 'Same artist, spelled differently'], ['online', 'Missing details found online']];
+    const label = { title: 'Title', artist: 'Artist', album: 'Album', year: 'Year', genre: 'Genre' };
+    const row = (f, i) => { const t = S.tracks.get(f.id); if (!t) return '';
+      return `<label class="tidy-row"><input type="checkbox" data-tidy="${i}" ${tidy.off.has(i) ? '' : 'checked'}><span class="tidy-ch">${Object.entries(f.to).map(([k, v]) => `<span class="tidy-f"><small>${label[k]}</small><span translate="no"><s>${esc(t[k] || '—')}</s> → <b>${esc(v)}</b></span></span>`).join('')}${f.to.title == null ? `<small class="tidy-song" translate="no">${esc(t.title)}</small>` : ''}</span></label>`; };
+    const groups = KINDS.map(([k, name]) => { const list = F.map((f, i) => [f, i]).filter(([f]) => f.kind === k); if (!list.length) return '';
+      return `<h2>${name} <span class="muted" style="font-weight:400">· ${list.length}</span></h2><div class="tidy-list">${list.slice(0, 200).map(([f, i]) => row(f, i)).join('')}</div>${list.length > 200 ? `<p class="muted">${list.length - 200} more are included when you press Apply.</p>` : ''}`; }).join('');
+    const picked = F.length - tidy.off.size, missing = tidyMissing().length, pending = [...S.tracks.values()].filter(t => t.tagsPending).length;
+    const noCover = new Set([...S.tracks.values()].filter(t => !S.artUrls.has(t.artId) && (t.albumArtist || t.artist)).map(t => t.artId)).size, dups = dupGroups().reduce((a, g) => a + g.length - 1, 0);
+    const canUndo = tidy.undo?.length || (await idb.get('kv', 'tidyUndo').catch(() => null))?.length;
+    if (page() !== 'tidy') return;
+    setView('<h1>Tidy my library</h1>', '<p class="muted">Seylumi suggests fixes for messy song details. Untick anything you don’t want. Nothing changes until you press Apply, and your music files themselves are never altered.</p>',
+      tidy.done ? `<div class="tidy-done">${ic('check')}<span>Tidied ${tidy.done} song${tidy.done === 1 ? '' : 's'}.</span></div>` : '',
+      F.length ? `<div class="hero-actions tidy-bar"><button class="btn primary" data-act="tidy-apply" ${picked ? '' : 'disabled'}>${ic('check')}Apply ${picked} fix${picked === 1 ? '' : 'es'}</button><button class="btn" data-act="tidy-all">${tidy.off.size ? 'Tick all' : 'Untick all'}</button>${canUndo ? `<button class="btn" data-act="tidy-undo">Undo last tidy</button>` : ''}</div>` + groups
+        : `<div class="empty"><h2>${tidy.done ? 'All done' : 'Song names look tidy'}</h2><p>No names or artists need fixing.</p>${canUndo ? `<p><button class="btn" data-act="tidy-undo">Undo last tidy</button></p>` : ''}</div>`,
+      '<h2>More to tidy</h2>',
+      `<div class="tidy-more">
+        <div class="tidy-card"><b>${missing} song${missing === 1 ? '' : 's'} with no album, year or genre</b><span>Seylumi can look these up online. A match needs the same artist, title and length.</span>${missing ? `<button class="btn" data-act="tidy-lookup">${ic('search')}Look up details</button>` : ''}</div>
+        <div class="tidy-card"><b>${noCover} album${noCover === 1 ? '' : 's'} with no cover</b><span>Finds the missing pictures online.</span>${noCover ? `<button class="btn" data-act="find-covers">${ic('disc')}Find covers</button>` : ''}</div>
+        <div class="tidy-card"><b>${dups} duplicate song${dups === 1 ? '' : 's'}</b><span>Extra copies of the same song.</span>${dups ? `<a class="btn" href="#/duplicates">Review duplicates</a>` : ''}</div>
+      </div>`,
+      pending ? `<p class="muted">${pending} song${pending === 1 ? ' is' : 's are'} still being read and will be checked afterwards.</p>` : '');
+  },
   async game(arg) {
     if (arg === 'test') { try { sessionStorage.setItem('cadence-plus-test', '1'); } catch {} }
     if (G) return;   // a round is on screen
@@ -3454,7 +3596,7 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn primary" data-act="add-files">${ic('file')}Add files</button><button class="btn" data-act="add-folder">${ic('folder')}${window.showDirectoryPicker ? 'Link a folder' : 'Add a folder'}</button></div></div>`,
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
-        <div class="hero-actions"><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
+        <div class="hero-actions"><a class="btn primary" href="#/tidy">${ic('spark')}Tidy my library</a><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
       `<div class="settings-block"><h2>Hide songs</h2><p>Leave things like voice notes, ringtones and recordings out of your library, search and shuffle. Nothing is deleted, and you can show them again at any time.</p>
         <div class="hero-actions"><select data-set="minSecs" aria-label="Hide short clips">${[[0, 'Show all lengths'], [30, 'Hide clips under 30 seconds'], [60, 'Hide clips under 1 minute'], [120, 'Hide clips under 2 minutes']].map(([v, l]) => `<option value="${v}" ${S.hide.minSecs === v ? 'selected' : ''}>${l}</option>`).join('')}</select><a class="btn" href="#/library/folders">${ic('folder')}Hide a folder</a></div>
         ${S.hide.folders.length ? `<h2 style="margin-top:18px">Hidden folders</h2>${S.hide.folders.map(h => { const [fid, pre] = [h.slice(0, h.indexOf('|')), h.slice(h.indexOf('|') + 1)]; const f = S.folders.find(x => x.id === fid); return `<div class="folder">${ic('folder')}<b>${esc((f?.name || 'Folder') + (pre ? ' / ' + pre.replace(/\/$/, '') : ''))}</b><button class="btn" data-act="unhide" data-key="${esc(h)}">Show</button></div>`; }).join('')}` : ''}
@@ -3497,7 +3639,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { getmusic: 'home', game: 'home', shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { tidy: 'settings', getmusic: 'home', game: 'home', shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -3505,6 +3647,7 @@ function route() {
 }
 function rerender() { const y = view.scrollTop; route(); view.scrollTop = y; }
 let lastHash = '';
+addEventListener('hashchange', () => { if (page() !== 'tidy' && tidy && !tidyLooking) tidy = null; });
 addEventListener('hashchange', () => { if (page() !== 'game' && (G || gameAudio)) { stopGameAudio(); G = null; } });
 addEventListener('hashchange', () => {
   const samePage = lastHash.split('/')[1] === page();
@@ -3736,6 +3879,10 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'tidy-apply': () => tidyApply(),
+  'tidy-undo': () => tidyUndo(),
+  'tidy-lookup': () => tidyLookup(),
+  'tidy-all': () => { if (!tidy) return; tidy.off = tidy.off.size ? new Set() : new Set(tidy.fixes.map((_, i) => i)); rerender(); },
   'tour-next': () => { if (tourAt >= TOUR.length - 1) return endTour(true); tourAt++; drawTour(); },
   'tour-back': () => { if (tourAt > 0) { tourAt--; drawTour(); } },
   'tour-skip': () => endTour(false),

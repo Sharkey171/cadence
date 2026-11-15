@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 67;
+const APP_VERSION = 68;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 68, date: '2026-11-15', notes: ['Storage manager (Settings → Manage storage): see what is using space, and free it by removing played podcast episodes, downloads or the biggest songs'] },
   { v: 67, date: '2026-11-15', notes: ['Tidy my library (Settings): cleans up messy song names, fills in missing artists, unifies artist spellings and looks up missing albums, years and genres. You approve every fix, and it can be undone', 'A welcome tour for people opening Seylumi for the first time'] },
   { v: 65, date: '2026-11-15', notes: ['Add music from Google Drive: + → From Google Drive shows how to pick songs from your Drive'] },
   { v: 62, date: '2026-11-15', notes: ['Fixed: timed lyrics could come from a different version of a song (for example a live recording), so they ran ahead of the music'] },
@@ -240,6 +241,15 @@ const TR_PATTERNS = [
   [/^Found details for (\d+) songs?$/, m => P('tfound', { n: m[1] })],
   [/^Put (\d+) songs? back as (?:it was|they were)$/, m => P('tundo', { n: m[1] })],
   [/^(\d+) songs? (?:is|are) still being read and will be checked afterwards\.$/, m => P('tpend', { n: m[1] })],
+  [/^used of about ([\d.]+ [KMG]B) available to Seylumi$/, m => P('stused', { x: m[1] })],
+  [/^(\d+) episodes?$/, m => P('steps', { n: m[1] })],
+  [/^(\d+) tracks?$/, m => P('sttracks', { n: m[1] })],
+  [/^(\d+) episodes? · ([\d.]+ [KMG]B)$/, m => P('stepsz', { n: m[1], x: m[2] })],
+  [/^(\d+) tracks? · ([\d.]+ [KMG]B)$/, m => P('sttrsz', { n: m[1], x: m[2] })],
+  [/^(\d+) downloaded episodes? you’ve already heard · ([\d.]+ [KMG]B)$/, m => P('stheard', { n: m[1], x: m[2] })],
+  [/^(\d+) linked songs? plays? from your own folders and uses? no space in Seylumi\.$/, m => P('stlinked', { n: m[1] })],
+  [/^Removed (\d+) downloads?$/, m => P('strm', { n: m[1] })],
+  [/^Remove (\d+) downloads?\?$/, m => P('strmq', { n: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1887,6 +1897,28 @@ async function newForYou() {
   return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
 }
 
+/* ---------------- storage manager ---------------- */
+const fmtSize = b => b >= 1e9 ? (b / 1e9).toFixed(b >= 1e10 ? 0 : 1) + ' GB' : b >= 1e6 ? Math.round(b / 1e6) + ' MB' : b > 0 ? Math.max(1, Math.round(b / 1e3)) + ' KB' : '0 MB';
+async function storageInfo() {
+  const sizeOf = async id => { try { const f = await idb.get('files', id); return f && typeof f.size === 'number' ? f.size : 0; } catch { return 0; } };
+  const copied = [...S.tracks.values()].filter(t => !t.linked);
+  const music = copied.reduce((a, t) => a + (t.size || 0), 0);
+  const dls = Object.values(S.dl), eps = [], free = [];
+  for (const d of dls) { const item = { t: d, size: await sizeOf(d.id) }; (d.kind === 'episode' ? eps : free).push(item); }
+  let covers = 0; try { for (const b of await idb.all('art')) covers += b?.size || 0; } catch {}
+  let used = 0, quota = 0; try { const e = await navigator.storage.estimate(); used = e.usage || 0; quota = e.quota || 0; } catch {}
+  const sum = l => l.reduce((a, x) => a + x.size, 0), pod = sum(eps), fr = sum(free);
+  const known = music + pod + fr + covers;
+  return { used: Math.max(used, known), quota, music, copied, linked: S.tracks.size - copied.length, eps, pod, free, fr, covers, other: Math.max(0, used - known),
+    played: eps.filter(x => S.played[x.t.id]) };
+}
+async function removeDownloads(items, what) {
+  if (!items.length) return;
+  if (!await ask({ title: `Remove ${items.length} download${items.length === 1 ? '' : 's'}?`, text: `This frees ${fmtSize(items.reduce((a, x) => a + x.size, 0))}. ${what} You can download them again later.`, ok: 'Remove', danger: true })) return;
+  for (const x of items) { await idb.del('files', x.t.id).catch(() => {}); delete S.dl[x.t.id]; }
+  await idb.put('kv', S.dl, 'dl'); toast(`Removed ${items.length} download${items.length === 1 ? '' : 's'}`); rerender();
+}
+
 /* ---------------- tidy my library ---------------- */
 // Suggests fixes for messy song details. Nothing changes until the person presses Apply, and Apply can be undone.
 const TIDY_JUNK = /\s*[(\[][^)\]]*\b(official|lyrics?|lyric video|audio|video|hd|hq|4k|\d{3}\s?kbps|visuali[sz]er|full song|with lyrics)\b[^)\]]*[)\]]/gi;
@@ -3359,6 +3391,30 @@ const VIEWS = {
       <div class="muted">${esc(mixSub(m))} · ${total(viewIds.map(T))}</div><p class="muted" style="margin:4px 0 0">New mixes every day, from your own music.</p>${heroActions(`<button class="btn" data-act="save-daily" data-i="${+i}">${ic('plus')}Save as playlist</button>`)}</div></div>`, trackList(viewIds));
   },
   getmusic(where, arg) { return getMusicView(where, arg); },
+  async storage() {
+    viewIds = [];
+    setView('<h1>Storage</h1>', '<p class="muted">Working it out…</p>');
+    const I = await storageInfo(); if (page() !== 'storage') return;
+    const parts = [['Music copied into Seylumi', I.music, '#ff7a59', `${I.copied.length} song${I.copied.length === 1 ? '' : 's'}`], ['Podcast downloads', I.pod, '#4361ee', `${I.eps.length} episode${I.eps.length === 1 ? '' : 's'}`],
+      ['Free music downloads', I.fr, '#2a9d8f', `${I.free.length} track${I.free.length === 1 ? '' : 's'}`], ['Covers', I.covers, '#e9c46a', ''], ['Everything else', I.other, '#8d99ae', 'Lyrics, settings and the app itself']];
+    const total = Math.max(1, I.used), pct = I.quota ? Math.min(100, I.used / I.quota * 100) : 0;
+    const big = [...I.copied].sort((a, b) => (b.size || 0) - (a.size || 0)).slice(0, 15).filter(t => t.size);
+    setView('<h1>Storage</h1>',
+      `<div class="st-top"><b>${fmtSize(I.used)}</b><span>${I.quota ? `used of about ${fmtSize(I.quota)} available to Seylumi` : 'used by Seylumi'}</span></div>
+       <div class="st-bar" aria-hidden="true">${parts.filter(p => p[1] > 0).map(p => `<i style="width:${Math.max(1.5, p[1] / total * 100)}%;background:${p[2]}"></i>`).join('')}</div>
+       ${I.quota && pct > 85 ? `<p class="st-warn">Storage is nearly full. Removing downloads below frees space.</p>` : ''}
+       <div class="st-list">${parts.map(p => `<div class="st-row"><i style="background:${p[2]}"></i><span><b>${p[0]}</b>${p[3] ? `<small>${p[3]}</small>` : ''}</span><em>${fmtSize(p[1])}</em></div>`).join('')}</div>
+       ${I.linked ? `<p class="muted" style="font-size:13px">${I.linked} linked song${I.linked === 1 ? ' plays' : 's play'} from your own folders and use${I.linked === 1 ? 's' : ''} no space in Seylumi.</p>` : ''}`,
+      '<h2>Free up space</h2>',
+      `<div class="tidy-more">
+        <div class="tidy-card"><b>Played podcast episodes</b><span>${I.played.length ? `${I.played.length} downloaded episode${I.played.length === 1 ? '' : 's'} you’ve already heard · ${fmtSize(I.played.reduce((a, x) => a + x.size, 0))}` : 'No downloaded episodes you’ve already heard.'}</span>${I.played.length ? `<button class="btn" data-act="st-played">${ic('trash')}Remove played episodes</button>` : ''}</div>
+        <div class="tidy-card"><b>All podcast downloads</b><span>${I.eps.length ? `${I.eps.length} episode${I.eps.length === 1 ? '' : 's'} · ${fmtSize(I.pod)}` : 'No podcast downloads.'}</span>${I.eps.length ? `<button class="btn" data-act="st-pods">${ic('trash')}Remove all podcast downloads</button>` : ''}</div>
+        <div class="tidy-card"><b>Free music downloads</b><span>${I.free.length ? `${I.free.length} track${I.free.length === 1 ? '' : 's'} · ${fmtSize(I.fr)}` : 'No free music downloads.'}</span>${I.free.length ? `<button class="btn" data-act="st-free">${ic('trash')}Remove free music downloads</button>` : ''}</div>
+        <div class="tidy-card"><b>Duplicate songs</b><span>Extra copies of the same song take space too.</span><a class="btn" href="#/duplicates">Review duplicates</a></div>
+      </div>`,
+      big.length ? '<h2>Biggest songs</h2><p class="muted" style="margin-top:-6px">Long recordings and high-quality files. Tap the bin to remove one.</p>' : '',
+      big.length ? `<div class="st-big">${big.map(t => `<div class="st-song"><span><b translate="no">${esc(t.title)}</b><small translate="no">${esc(t.artist || 'Unknown artist')}</small></span><em>${fmtSize(t.size)}</em><button class="icon-btn" data-act="st-del" data-id="${esc(t.id)}" aria-label="Remove this song from Seylumi">${ic('trash')}</button></div>`).join('')}</div>` : '');
+  },
   async tidy() {
     viewIds = [];
     if (!S.tracks.size) return setView('<h1>Tidy my library</h1><div class="empty">Add some music first.</div>');
@@ -3596,7 +3652,7 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn primary" data-act="add-files">${ic('file')}Add files</button><button class="btn" data-act="add-folder">${ic('folder')}${window.showDirectoryPicker ? 'Link a folder' : 'Add a folder'}</button></div></div>`,
       S.folders.length ? `<div class="settings-block"><h2>Linked folders</h2>${S.folders.map(f => `<div class="folder">${ic('folder')}<b>${esc(f.name)}</b><button class="btn" data-act="rescan" data-id="${f.id}">Rescan</button><button class="btn danger" data-act="unlink" data-id="${f.id}">Remove</button></div>`).join('')}</div>` : '',
       `<div class="settings-block"><h2>Library</h2><p>${S.tracks.size} songs · ${S.albums.size} albums · ${S.playlists.length} playlists<br>${copied} copied into the app, ${S.tracks.size - copied} linked${usage ? '<br>' + usage : ''}</p>
-        <div class="hero-actions"><a class="btn primary" href="#/tidy">${ic('spark')}Tidy my library</a><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
+        <div class="hero-actions"><a class="btn primary" href="#/tidy">${ic('spark')}Tidy my library</a><a class="btn" href="#/storage">${ic('disc')}Manage storage</a><a class="btn" href="#/duplicates">Find duplicate songs</a><button class="btn danger" data-act="wipe">${ic('trash')}Delete entire library</button></div></div>`,
       `<div class="settings-block"><h2>Hide songs</h2><p>Leave things like voice notes, ringtones and recordings out of your library, search and shuffle. Nothing is deleted, and you can show them again at any time.</p>
         <div class="hero-actions"><select data-set="minSecs" aria-label="Hide short clips">${[[0, 'Show all lengths'], [30, 'Hide clips under 30 seconds'], [60, 'Hide clips under 1 minute'], [120, 'Hide clips under 2 minutes']].map(([v, l]) => `<option value="${v}" ${S.hide.minSecs === v ? 'selected' : ''}>${l}</option>`).join('')}</select><a class="btn" href="#/library/folders">${ic('folder')}Hide a folder</a></div>
         ${S.hide.folders.length ? `<h2 style="margin-top:18px">Hidden folders</h2>${S.hide.folders.map(h => { const [fid, pre] = [h.slice(0, h.indexOf('|')), h.slice(h.indexOf('|') + 1)]; const f = S.folders.find(x => x.id === fid); return `<div class="folder">${ic('folder')}<b>${esc((f?.name || 'Folder') + (pre ? ' / ' + pre.replace(/\/$/, '') : ''))}</b><button class="btn" data-act="unhide" data-key="${esc(h)}">Show</button></div>`; }).join('')}` : ''}
@@ -3639,7 +3695,7 @@ function route() {
   const args = rest.map(decodeURIComponent);
   viewIds = [];
   (VIEWS[p] || VIEWS.home)(...args);
-  const navKey = { tidy: 'settings', getmusic: 'home', game: 'home', shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
+  const navKey = { storage: 'settings', tidy: 'settings', getmusic: 'home', game: 'home', shared: 'playlists', album: 'library', artist: 'library', folder: 'library', genre: 'library', decade: 'library', duplicates: 'settings', stats: 'home', daily: 'home', year: 'home', playlist: 'playlists', mix: 'playlists', liked: isDesktop() ? 'liked' : 'playlists' }[p] || p;
   const sub = p === 'online' ? 'online-' + (args[0] || 'podcasts') : p === 'podcast' ? 'online-podcasts' : p === 'archive' ? 'online-music' : null;
   ytMark();
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
@@ -3879,6 +3935,11 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'st-played': async () => removeDownloads((await storageInfo()).played, 'Only episodes marked as played are removed.'),
+  'st-pods': async () => removeDownloads((await storageInfo()).eps, 'The shows you follow are kept.'),
+  'st-free': async () => removeDownloads((await storageInfo()).free, 'Albums you saved are kept.'),
+  'st-del': async el => { const t = S.tracks.get(el.dataset.id); if (!t) return;
+    if (await ask({ title: 'Remove this song?', text: `“${t.title}” is removed from Seylumi, freeing ${fmtSize(t.size || 0)}. The original file elsewhere on your device isn’t touched.`, ok: 'Remove', danger: true })) await deleteTracks([t.id]); },
   'tidy-apply': () => tidyApply(),
   'tidy-undo': () => tidyUndo(),
   'tidy-lookup': () => tidyLookup(),

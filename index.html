@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=57">
+<link rel="stylesheet" href="styles.css?v=58">
 </head>
 <body>
 <div id="launch" hidden aria-hidden="true">
@@ -162,7 +162,7 @@
   <header>
     <button class="icon-btn" data-act="close-np" data-ic="down" aria-label="Close now playing"></button>
     <span>Now playing</span>
-    <button class="icon-btn" data-act="np-menu" data-ic="dots" aria-label="More options and sleep timer"></button>
+    <span class="np-hbtns"><button class="icon-btn" id="np-share" data-act="np-share-card" data-ic="share" aria-label="Share this song as a picture" hidden></button><button class="icon-btn" data-act="np-menu" data-ic="dots" aria-label="More options and sleep timer"></button></span>
   </header>
   <div id="np-art" class="art"></div>
   <div class="np-meta">
@@ -241,6 +241,15 @@
   </form>
 </dialog>
 
+<dialog id="share-card">
+  <form method="dialog">
+    <h3>Share this song</h3>
+    <div class="chips card-shapes"><button type="button" class="chip active" data-act="card-shape" data-v="story">Story</button><button type="button" class="chip" data-act="card-shape" data-v="square">Square</button></div>
+    <img alt="A picture of the song playing now">
+    <div class="dlg-btns"><button class="btn">Close</button><button type="button" class="btn" data-act="card-save">Save</button><button type="button" class="btn primary" data-act="card-share">Share</button></div>
+  </form>
+</dialog>
+
 <dialog id="share-app">
   <form method="dialog">
     <h3>Share Seylumi</h3>
@@ -295,7 +304,7 @@
 <input type="file" id="pl-input" multiple accept=".csv,.tsv,.m3u,.m3u8,.pls,.txt,text/csv,audio/x-mpegurl,audio/mpegurl,audio/x-scpls,text/plain" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=57"></script>
+<script type="module" src="app.js?v=58"></script>
 <script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {

@@ -133,14 +133,14 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
 const previewsOn = () => { try { return localStorage.getItem('cadence-previews') === 'on'; } catch { return false; } };
 let verTaps = 0, verTapAt = 0;
 const previewsBlock = () => previewsOn() ? `<div class="settings-block"><h2>Previews (testing)</h2><p class="muted">Features being tested before they go live. Only you can see this.</p>
-  <div class="hero-actions"><a class="btn" href="#/game">${ic('note')}Guess the Song</a><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
+  <div class="hero-actions"><a class="btn" href="#/game">${ic('note')}Guess the Song</a><button class="btn" data-act="np-share-card">${ic('share')}Share song as picture</button><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
@@ -1146,6 +1146,7 @@ function syncPlayer() {
   $('#p-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   { const tip = !t ? '' : !t.url ? `See all songs by ${t.artist || 'this artist'}` : t.kind === 'episode' ? 'Go to this podcast' : t.kind === 'ia' ? 'Go to this recording' : 'Go to radio'; for (const el of [$('#p-artist'), $('#np-artist')]) el.setAttribute('aria-label', tip); }
   $('#np-title').textContent = t ? t.title : '';
+  { const b = $('#np-share'); if (b) b.hidden = !t || !previewsOn(); }
   $('#np-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
   { const r = $('#np-rating'); r.hidden = !t || !!t.url; if (t && !t.url) { r.textContent = stars(t.rating || 0); r.classList.toggle('unrated', !t.rating); r.setAttribute('aria-label', t.rating ? `Rated ${t.rating} of 5 — change rating` : 'Rate this song'); } }
   $('#car-title').textContent = t ? t.title : 'Nothing playing'; $('#car-artist').textContent = t ? (t.artist || 'Unknown artist') : '';
@@ -1974,6 +1975,74 @@ function yearData(y) {
   return { y, plays: h.length, mins: Math.round(h.reduce((a, x) => a + (x.d || 0), 0) / 60), artists: count(x => x.r), songs: count(x => x.i), genre: genre[0]?.x && S.tracks.get(genre[0].x.i)?.genre.split(/[;,/]/)[0].trim(), topMonth: months.indexOf(Math.max(...months)), months, first };
 }
 const L = s => (I18N && trCore(s)) || s;
+/* ---------------- share "Now Playing" as a picture ---------------- */
+// A picture of the song for stories and chats, coloured from the album cover, with a small Seylumi mark.
+const loadImg = (src, cors) => new Promise(res => { if (!src) return res(null); const i = new Image(); if (cors) i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+function avgColour(img) {
+  try { const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d'); g.drawImage(img, 0, 0, 16, 16); const d = g.getImageData(0, 0, 16, 16).data; let r = 0, gg = 0, b = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) { const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]); const w = 1 + (mx - mn) / 40; r += d[i] * w; gg += d[i + 1] * w; b += d[i + 2] * w; n += w; }
+    return [r / n, gg / n, b / n].map(Math.round); } catch { return null; }
+}
+const shade = (c, k) => `rgb(${c.map(v => Math.max(0, Math.min(255, Math.round(v * k)))).join(',')})`;
+async function songCard(t, shape = 'story') {
+  const W = 1080, H = shape === 'story' ? 1920 : 1080, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const artSrc = S.artUrls.get(t.artId);
+  let art = await loadImg(artSrc, /^https?:/.test(artSrc || ''));
+  let col = art && avgColour(art);
+  if (!col) { art = art && !/^https?:/.test(artSrc) ? art : null; col = [255, 122, 89]; }   // a cover from another site that can't be measured is left out
+  const lum = (0.299 * col[0] + 0.587 * col[1] + 0.114 * col[2]) / 255, k = lum > 0.6 ? 0.55 : lum > 0.35 ? 0.8 : 1.15;
+  const bg = g.createLinearGradient(0, 0, W * 0.4, H); bg.addColorStop(0, shade(col, k * 1.05)); bg.addColorStop(1, shade(col, k * 0.32)); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const fit = (txt, w, px, max) => { g.font = F(w, px); let s = String(txt || ''); if (g.measureText(s).width <= max) return s; while (s.length > 1 && g.measureText(s + '…').width > max) s = s.slice(0, -1); return s.trimEnd() + '…'; };
+  const wrap2 = (txt, w, px, max) => { g.font = F(w, px); const words = String(txt || '').split(/\s+/); let a = ''; let i = 0; for (; i < words.length; i++) { const tr = a ? a + ' ' + words[i] : words[i]; if (g.measureText(tr).width > max && a) break; a = tr; } const rest = words.slice(i).join(' '); return rest ? [a, fit(rest, w, px, max)] : [fit(a, w, px, max)]; };
+  const kind = t.kind === 'episode' ? 'Listening to a podcast' : t.kind === 'station' ? 'Listening to live radio' : 'Listening to';
+  const size = shape === 'story' ? 860 : 560, x = (W - size) / 2, y = shape === 'story' ? 420 : 120, r = 36;
+  g.fillStyle = 'rgba(255,255,255,.85)'; g.font = F(600, shape === 'story' ? 40 : 34); g.textAlign = 'center';
+  g.fillText(L(kind), W / 2, shape === 'story' ? 330 : 80);
+  g.save(); g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 60; g.shadowOffsetY = 24;
+  g.beginPath(); g.roundRect(x, y, size, size, r); g.fillStyle = shade(col, 0.6); g.fill(); g.restore();
+  g.save(); g.beginPath(); g.roundRect(x, y, size, size, r); g.clip();
+  if (art) { const s0 = Math.min(art.width, art.height); g.drawImage(art, (art.width - s0) / 2, (art.height - s0) / 2, s0, s0, x, y, size, size); }
+  else { const gr = g.createLinearGradient(x, y, x + size, y + size); gr.addColorStop(0, '#ff7a59'); gr.addColorStop(1, '#b3246b'); g.fillStyle = gr; g.fillRect(x, y, size, size);
+    g.fillStyle = 'rgba(255,255,255,.9)'; for (const [i, h] of [[-2, .25], [-1, .5], [0, .7], [1, .45], [2, .22]]) { const bw = size * 0.06, bh = size * h; g.beginPath(); g.roundRect(W / 2 + i * bw * 1.9 - bw / 2, y + (size - bh) / 2, bw, bh, bw / 2); g.fill(); } }
+  g.restore();
+  const ty = y + size + (shape === 'story' ? 130 : 95), tpx = shape === 'story' ? 68 : 54;
+  const lines = wrap2(t.title, 800, tpx, W - 160); g.fillStyle = '#fff';
+  lines.forEach((ln, i) => { g.font = F(800, tpx); g.fillText(ln, W / 2, ty + i * tpx * 1.15); });
+  g.fillStyle = 'rgba(255,255,255,.8)'; g.font = F(500, shape === 'story' ? 46 : 38);
+  g.fillText(fit(t.artist || '', 500, shape === 'story' ? 46 : 38, W - 160), W / 2, ty + lines.length * tpx * 1.15 + (shape === 'story' ? 20 : 12));
+  // the Seylumi mark
+  const logo = await loadImg('icons/icon-192.png'), ly = H - (shape === 'story' ? 150 : 90), ls = shape === 'story' ? 64 : 52, host = APP_LINK.replace(/^https:\/\//, '').replace(/\/(welcome\.html)?$/, '');
+  g.font = F(700, shape === 'story' ? 40 : 34); const label = 'Seylumi', lw = g.measureText(label).width, total = ls + 18 + lw;
+  if (logo) { g.save(); g.beginPath(); g.roundRect(W / 2 - total / 2, ly - ls / 2, ls, ls, ls * 0.24); g.clip(); g.drawImage(logo, W / 2 - total / 2, ly - ls / 2, ls, ls); g.restore(); }
+  g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(label, W / 2 - total / 2 + ls + 18, ly + 2);
+  g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(255,255,255,.65)'; g.font = F(500, shape === 'story' ? 32 : 28); g.fillText(host, W / 2, ly + ls / 2 + (shape === 'story' ? 52 : 42));
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+let cardState = null;
+async function openSongCard(shape) {
+  const t = current(); if (!t) return toast('Play something first');
+  const d = $('#share-card');
+  cardState = { t, shape: shape || cardState?.shape || 'story', blob: null };
+  $$('[data-act=card-shape]', d).forEach(b => b.classList.toggle('active', b.dataset.v === cardState.shape));
+  const img = $('img', d); img.classList.toggle('square', cardState.shape === 'square'); img.removeAttribute('src');
+  if (!d.open) d.showModal();
+  const blob = await songCard(t, cardState.shape); if (!blob || cardState.t !== t) return;
+  cardState.blob = blob; if (img.src) URL.revokeObjectURL(img.src); img.src = URL.createObjectURL(blob);
+}
+async function shareSongCard() {
+  const st = cardState; if (!st?.blob) return;
+  const file = new File([st.blob], 'seylumi-now-playing.png', { type: 'image/png' });
+  const text = st.t.artist ? `Listening to “${st.t.title}” by ${st.t.artist} on Seylumi` : `Listening to “${st.t.title}” on Seylumi`;
+  try { if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file], text, url: APP_LINK }); } catch (e) { if (e?.name === 'AbortError') return; }
+  saveSongCard();
+}
+function saveSongCard() {
+  const st = cardState; if (!st?.blob) return;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(st.blob); a.download = 'seylumi-now-playing.png'; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000); toast('Picture saved');
+}
+
 async function yearImage(d) {
   const W = 1080, H = 1920, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff7a59';
@@ -3270,7 +3339,7 @@ async function carMode(on) {
   try { if (on) carLock = await navigator.wakeLock?.request('screen'); else { await carLock?.release(); carLock = null; } } catch { carLock = null; }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#car').hidden) carMode(true); });
-function openNP() { if (current() && $('#np').hidden) { $('#np').hidden = false; overlayOpened(); vizStart(); } }
+function openNP() { if (current() && $('#np').hidden) { $('#np').hidden = false; overlayOpened(); vizStart(); const b = $('#np-share'); if (b) b.hidden = !previewsOn(); } }
 function closeNP() { if ($('#np').hidden) return; $('#np').hidden = true; overlayClosed(); }
 
 /* ---------------- Now Playing animation ---------------- */
@@ -3477,6 +3546,10 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'np-share-card': () => openSongCard(),
+  'card-shape': el => openSongCard(el.dataset.v),
+  'card-share': () => shareSongCard(),
+  'card-save': () => saveSongCard(),
   'version-tap': () => {
     const now = Date.now(); verTaps = now - verTapAt < 1500 ? verTaps + 1 : 1; verTapAt = now;
     if (verTaps >= 5) { verTaps = 0; try { localStorage.setItem('cadence-previews', 'on'); } catch {} toast('Previews unlocked: see the top of Settings'); rerender(); $('#view').scrollTop = 0; }

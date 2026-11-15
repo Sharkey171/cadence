@@ -621,3 +621,9 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 .gm-more { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 14px; margin-top: 4px; text-decoration: none; } .gm-more svg { width: 16px; height: 16px; }
 .pod-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; } .pod-head h2 { margin-right: auto; }
 .pod-cc { max-width: 60%; background: var(--raised); color: var(--text); border: 0; border-radius: 999px; padding: 9px 14px; font: inherit; font-weight: 600; }
+
+/* share a song as a picture */
+.np-hbtns { display: flex; gap: 2px; }
+#share-card img { display: block; width: min(260px, 62vw); aspect-ratio: 9/16; margin: 4px auto 14px; border-radius: 14px; background: var(--raised); object-fit: cover; box-shadow: 0 10px 30px #0006; }
+#share-card img.square { aspect-ratio: 1; width: min(280px, 70vw); }
+.card-shapes { justify-content: center; margin-bottom: 10px; }

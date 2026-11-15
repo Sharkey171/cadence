@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 65;
+const APP_VERSION = 66;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -1876,6 +1876,38 @@ async function newForYou() {
   return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
 }
 
+/* ---------------- welcome tour (first launch) ---------------- */
+// Four short slides for someone opening Seylumi for the first time. Shown once; replay from Settings > About.
+const TOUR = [
+  { icon: 'note', bg: '#ff7a59,#b3246b', title: 'Welcome to Seylumi', text: 'Your music, your way. Seylumi plays the music you own, with no internet needed, no account and no adverts.' },
+  { icon: 'plus', bg: '#2a9d8f,#264653', title: 'Add your music', text: 'Tap + at the top to add songs from your phone or Google Drive. No music yet? Get a free pack in one tap.' },
+  { icon: 'spark', bg: '#7b2cbf,#3c096c', title: 'Made for you', text: 'Daily mixes from your own songs, lyrics that follow along, playlists, and a year-in-music picture to share.' },
+  { icon: 'globe', bg: '#4361ee,#1b1b3a', title: 'Radio and podcasts', text: 'Under Online you’ll find free radio from around the world and podcasts to stream or download.' },
+];
+let tourAt = 0;
+function drawTour() {
+  const d = $('#tour'), sl = TOUR[tourAt], last = tourAt === TOUR.length - 1;
+  $('.tour-art', d).style.background = `linear-gradient(135deg,${sl.bg})`; $('.tour-art', d).innerHTML = ic(sl.icon);
+  $('h3', d).textContent = sl.title; $('p', d).textContent = sl.text;
+  $('.tour-dots', d).innerHTML = TOUR.map((_, i) => `<i class="${i === tourAt ? 'on' : ''}"></i>`).join('');
+  $('[data-act=tour-next]', d).textContent = last ? (S.tracks.size ? 'Get started' : 'Add my music') : 'Next';
+  $('[data-act=tour-skip]', d).hidden = last; $('[data-act=tour-back]', d).hidden = tourAt === 0;
+}
+function openTour() { tourAt = 0; drawTour(); const d = $('#tour'); if (!d.open) d.showModal(); }
+function endTour(go) {
+  try { localStorage.setItem('cadence-tour', 'done'); } catch {}
+  $('#tour').close();
+  if (go && !S.tracks.size) nav('#/getmusic');
+}
+function maybeTour(firstRun) {
+  let done = true; try { done = localStorage.getItem('cadence-tour') === 'done'; } catch {}
+  if (done) return;
+  // people who already use Seylumi don't need it; automated checks (search engines, tests) don't get it either
+  if (!firstRun || S.tracks.size || (navigator.webdriver && !/[?&]tour/.test(location.search))) { try { localStorage.setItem('cadence-tour', 'done'); } catch {} return; }
+  const wait = () => document.getElementById('launch') || document.querySelector('dialog[open]') ? setTimeout(wait, 300) : openTour();
+  setTimeout(wait, 400);
+}
+
 /* ---------------- Get music: a guide, free starter packs, and where to buy ---------------- */
 const PACKS = [
   { id: 'chill', name: 'Chill & ambient', bg: '#2a9d8f,#264653', q: 'collection:netlabels AND subject:(ambient OR chillout OR downtempo)' },
@@ -3440,7 +3472,7 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate && !IN_STORE_APP ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
-        <button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
+        <button class="btn" data-act="tour-open">${ic('spark')}Welcome tour</button><button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
         ${LINKS.donate && !IN_STORE_APP ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
@@ -3704,6 +3736,10 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'tour-next': () => { if (tourAt >= TOUR.length - 1) return endTour(true); tourAt++; drawTour(); },
+  'tour-back': () => { if (tourAt > 0) { tourAt--; drawTour(); } },
+  'tour-skip': () => endTour(false),
+  'tour-open': () => openTour(),
   'kara-open': () => openKara(),
   'kara-version': (el, e) => chooseLyricVersion(e),
   'kara-sync': () => { if (!kara?.lines.length) return toast('Syncing needs timed lyrics'); kara.sync = !kara.sync; karaSyncUI(); },
@@ -3981,6 +4017,7 @@ async function boot() {
   appReady = true; syncTint(); document.documentElement.dataset.ready = '1';
   try {
     const seen = +localStorage.getItem('cadence-version') || 0;
+    maybeTour(!seen);
     if (seen && seen < APP_VERSION) setTimeout(() => toast(`Updated to version ${APP_VERSION} — see What’s new in Settings`), 1500);
     localStorage.setItem('cadence-version', APP_VERSION);
   } catch {}

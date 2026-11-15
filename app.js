@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 68;
+const APP_VERSION = 69;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -3348,9 +3348,14 @@ const emptyLib = () => `<div class="empty"><h1>Your music, offline</h1>
 const heroActions = (extra = '') => `<div class="hero-actions"><button class="btn primary" data-act="play-view">${ic('play')}Play</button><button class="btn" data-act="shuffle-view">${ic('shuffle')}Shuffle</button>${extra}</div>`;
 
 let viewIds = [];   // tracks of the current page, for the Play / Shuffle buttons
+// A refresh of the page you're on (a cover was found, a download finished) must not move you: pages that
+// draw themselves a moment later (storage, tidy) put the scroll position back when they do.
+let rrHash = null, rrUntil = 0;
 function setView(...parts) {
+  const keep = rrHash === location.hash && Date.now() < rrUntil ? view.scrollTop : null;
   view.innerHTML = '';
   for (const p of parts) { if (typeof p === 'string') view.insertAdjacentHTML('beforeend', p); else if (p) view.append(p); }
+  if (keep != null) view.scrollTop = keep;
 }
 const page = () => location.hash.split('/')[1] || 'home';
 
@@ -3393,7 +3398,7 @@ const VIEWS = {
   getmusic(where, arg) { return getMusicView(where, arg); },
   async storage() {
     viewIds = [];
-    setView('<h1>Storage</h1>', '<p class="muted">Working it out…</p>');
+    if (!$('.st-list')) setView('<h1>Storage</h1>', '<p class="muted">Working it out…</p>');   // on a refresh, keep what's showing until the new numbers are ready
     const I = await storageInfo(); if (page() !== 'storage') return;
     const parts = [['Music copied into Seylumi', I.music, '#ff7a59', `${I.copied.length} song${I.copied.length === 1 ? '' : 's'}`], ['Podcast downloads', I.pod, '#4361ee', `${I.eps.length} episode${I.eps.length === 1 ? '' : 's'}`],
       ['Free music downloads', I.fr, '#2a9d8f', `${I.free.length} track${I.free.length === 1 ? '' : 's'}`], ['Covers', I.covers, '#e9c46a', ''], ['Everything else', I.other, '#8d99ae', 'Lyrics, settings and the app itself']];
@@ -3701,7 +3706,8 @@ function route() {
   $$('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === navKey || a.dataset.nav === sub || (a.dataset.nav === 'online' && !!sub)));
   $$('#side-playlists a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === location.hash));
 }
-function rerender() { const y = view.scrollTop; route(); view.scrollTop = y; }
+function rerender() { const y = view.scrollTop; rrHash = location.hash; rrUntil = Date.now() + 8000; route(); view.scrollTop = y; }
+Object.defineProperty(window, 'refreshForTests', { value: () => rerender() });
 let lastHash = '';
 addEventListener('hashchange', () => { if (page() !== 'tidy' && tidy && !tidyLooking) tidy = null; });
 addEventListener('hashchange', () => { if (page() !== 'game' && (G || gameAudio)) { stopGameAudio(); G = null; } });

@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=58">
+<link rel="stylesheet" href="styles.css?v=59">
 </head>
 <body>
 <div id="launch" hidden aria-hidden="true">
@@ -155,6 +155,17 @@
     <a href="#/online/podcasts" data-nav="online" aria-label="Podcasts and radio" data-ic="globe"><span>Online</span></a>
   </nav>
 </div>
+
+<section id="kara" hidden>
+  <div class="k-bg"></div>
+  <header>
+    <button class="icon-btn" data-act="kara-close" data-ic="down" aria-label="Close karaoke"></button>
+    <span class="k-title" translate="no"></span>
+    <span class="k-size"><button class="icon-btn" data-act="kara-size" data-d="-1" aria-label="Smaller lyrics">A−</button><button class="icon-btn" data-act="kara-size" data-d="1" aria-label="Bigger lyrics">A+</button></span>
+  </header>
+  <div class="k-lines"></div>
+  <footer><button class="icon-btn" data-act="prev" data-ic="prev" aria-label="Previous song"></button><button class="pp" data-act="toggle" aria-label="Play or pause"></button><button class="icon-btn" data-act="next" data-ic="next" aria-label="Next song"></button></footer>
+</section>
 
 <section id="np" hidden>
   <div id="np-bg"></div>
@@ -304,7 +315,7 @@
 <input type="file" id="pl-input" multiple accept=".csv,.tsv,.m3u,.m3u8,.pls,.txt,text/csv,audio/x-mpegurl,audio/mpegurl,audio/x-scpls,text/plain" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=58"></script>
+<script type="module" src="app.js?v=59"></script>
 <script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {

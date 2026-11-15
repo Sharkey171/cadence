@@ -133,14 +133,14 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 58;
+const APP_VERSION = 59;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
 const previewsOn = () => { try { return localStorage.getItem('cadence-previews') === 'on'; } catch { return false; } };
 let verTaps = 0, verTapAt = 0;
 const previewsBlock = () => previewsOn() ? `<div class="settings-block"><h2>Previews (testing)</h2><p class="muted">Features being tested before they go live. Only you can see this.</p>
-  <div class="hero-actions"><a class="btn" href="#/game">${ic('note')}Guess the Song</a><button class="btn" data-act="np-share-card">${ic('share')}Share song as picture</button><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
+  <div class="hero-actions"><a class="btn" href="#/game">${ic('note')}Guess the Song</a><button class="btn" data-act="np-share-card">${ic('share')}Share song as picture</button><button class="btn" data-act="kara-open">${ic('mic')}Karaoke mode</button><a class="btn" href="#/game/test">${ic('note')}Guess the Song (as Plus)</a><button class="btn" data-act="previews-off">Hide previews</button></div></div>` : '';
 const launchPref = () => { try { return localStorage.getItem('cadence-launch') === 'off' ? 'off' : 'on'; } catch { return 'on'; } };
 const IN_STORE_APP = (() => { try { if (/^android-app:\/\/io\.github\.sharkey171\.seylumi/.test(document.referrer)) sessionStorage.setItem('cadence-store', '1'); return sessionStorage.getItem('cadence-store') === '1'; } catch { return false; } })();
 const LINKS = {
@@ -1301,6 +1301,7 @@ function trackMenu(t, ev, ctx = {}) {
     ctx.np && { label: 'Equalizer and sound', icon: 'settings', fn: () => nav('#/settings') },
     { label: t.rating ? `Rating: ${stars(t.rating)}` : 'Rate this song', icon: 'star', fn: () => rateMenu(t) },
     { label: 'Lyrics', icon: 'text', fn: () => showLyrics(t) },
+    previewsOn() && current()?.id === t.id && { label: 'Karaoke mode', icon: 'mic', fn: () => openKara() },
     !S.artUrls.has(t.artId) && { label: 'Find cover online', icon: 'disc', fn: async () => {
       if (!navigator.onLine) return toast('Connect to the internet to look up covers');
       if (!(t.albumArtist || t.artist)) return toast('Add the artist name first (Edit info)');
@@ -1426,11 +1427,8 @@ async function findAllCovers() {
 
 /* ---------------- lyrics, editing, reordering ---------------- */
 let lyrLive = null;   // { id, lines, at } while timed lyrics are on screen
-async function showLyrics(t) {
-  const d = $('#lyr'), pre = $('pre', d), box = $('.lrc', d), src = $('.lyr-src', d), head = `${t.title} · ${t.artist || 'Unknown artist'}`;
-  $('h3', d).textContent = head; pre.hidden = false; box.hidden = true; lyrLive = null;
-  pre.textContent = 'Looking for lyrics…'; src.textContent = '';
-  d.showModal(); pre.scrollTop = 0;
+// Finds lyrics: inside the file first, then saved ones, then online. Returns { plain, lines, from, note }.
+async function loadLyrics(t) {
   let plain = '', lines = [], from = '';
   if (!t.url) try {
     const mm = await import('./vendor/music-metadata.js');
@@ -1454,8 +1452,16 @@ async function showLyrics(t) {
       if (r) { plain = r.plain; lines = parseLrc(r.synced); from = saved; idb.put('kv', r, 'lyr:' + t.id).catch(() => {}); }
     } catch (e) { console.warn('lyrics lookup', e); note = 'The lyrics service could not be reached. Try again later.'; }
   }
+  return { plain, lines: lines.length > 3 ? lines : [], from, note };
+}
+async function showLyrics(t) {
+  const d = $('#lyr'), pre = $('pre', d), box = $('.lrc', d), src = $('.lyr-src', d), head = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  $('h3', d).textContent = head; pre.hidden = false; box.hidden = true; lyrLive = null;
+  pre.textContent = 'Looking for lyrics…'; src.textContent = '';
+  d.showModal(); pre.scrollTop = 0;
+  const { plain, lines, from, note } = await loadLyrics(t);
   if ($('h3', d).textContent !== head || !d.open) return;   // closed, or another song was opened meanwhile
-  if (lines.length > 3) {
+  if (lines.length) {
     box.innerHTML = lines.map((l, i) => `<p data-i="${i}">${esc(l.text) || '♪'}</p>`).join('');
     box.hidden = false; pre.hidden = true; box.scrollTop = 0;
     lyrLive = { id: t.id, lines, at: -2 };
@@ -1478,6 +1484,72 @@ $('#lyr .lrc').addEventListener('click', e => {
   const p = e.target.closest('p'); if (!p || !lyrLive) return;
   if (S.loadedId === lyrLive.id) { audio.currentTime = lyrLive.lines[+p.dataset.i].t; syncLyrics(); } else toast('Play this song to jump around in it');
 });
+/* ---------------- karaoke mode (preview) ---------------- */
+// Full screen, big lyrics; the line being sung fills in from left to right. Needs timed lyrics;
+// untimed ones scroll along with the song instead.
+let kara = null, karaRaf = 0, karaLock = null;
+const karaScale = () => { try { return +localStorage.getItem('cadence-kara-size') || 1; } catch { return 1; } };
+async function openKara() {
+  const t = current(); if (!t) return toast('Play something first');
+  const el = $('#kara'); el.hidden = false; overlayOpened();
+  el.style.setProperty('--ks', karaScale());
+  try { karaLock = await navigator.wakeLock?.request('screen'); } catch {}   // keep the screen on while singing
+  loadKara(t);
+}
+async function loadKara(t) {
+  const el = $('#kara'), box = $('.k-lines', el);
+  kara = { id: t.id, lines: [], at: -2, plain: false };
+  $('.k-title', el).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  const u = S.artUrls.get(t.artId); $('.k-bg', el).style.backgroundImage = u ? `url('${u}')` : 'none';
+  box.className = 'k-lines'; box.innerHTML = '<p class="k-msg">Looking for lyrics…</p>'; box.scrollTop = 0;
+  const r = await loadLyrics(t);
+  if (!kara || kara.id !== t.id) return;
+  if (r.lines.length) {
+    kara.lines = r.lines;
+    box.innerHTML = '<div class="k-pad"></div>' + r.lines.map((l, i) => `<p data-i="${i}" translate="no"><span>${esc(l.text) || '♪'}</span></p>`).join('') + '<div class="k-pad"></div>';
+  } else if (r.plain) {
+    kara.plain = true; box.classList.add('plain');
+    box.innerHTML = `<p class="k-note">These lyrics aren’t timed, so they scroll along slowly with the song.</p><pre translate="no">${esc(r.plain)}</pre>`;
+  } else box.innerHTML = `<p class="k-msg">${esc(r.note)}</p>`;
+  cancelAnimationFrame(karaRaf); karaRaf = requestAnimationFrame(karaFrame);
+}
+function karaFrame() {
+  if (!kara) return;
+  karaRaf = requestAnimationFrame(karaFrame);
+  if (S.loadedId !== kara.id) { const t = current(); if (t && t.id !== kara.id) loadKara(t); return; }
+  const box = $('#kara .k-lines'), now = audio.currentTime + 0.15;
+  if (kara.plain) { const d = audio.duration; if (isFinite(d) && d > 0 && !karaTouch) box.scrollTop = Math.max(0, (now / d) * (box.scrollHeight - box.clientHeight) - 40); return; }
+  const L = kara.lines; if (!L.length) return;
+  let i = -1; for (let k = 0; k < L.length && L[k].t <= now; k++) i = k;
+  if (i !== kara.at) {
+    kara.at = i;
+    const ps = box.querySelectorAll('p');
+    ps.forEach((p, k) => { p.classList.toggle('now', k === i); p.classList.toggle('past', k < i); p.style.removeProperty('--k'); });
+    const cur = ps[Math.max(0, i)];
+    if (cur && !karaTouch) box.scrollTo({ top: cur.offsetTop - box.clientHeight * 0.38, behavior: 'smooth' });
+  }
+  if (i >= 0) {
+    // fill the line at singing pace: across the time to the next line, but not slower than the words need
+    const next = L[i + 1]?.t ?? (L[i].t + 5), words = Math.max(1, (L[i].text || '').length);
+    const dur = Math.max(1.2, Math.min(next - L[i].t, words * 0.11 + 0.8));
+    const k = Math.max(0, Math.min(1, (now - L[i].t) / dur));
+    box.querySelector('p.now')?.style.setProperty('--k', (k * 100).toFixed(1) + '%');
+  }
+}
+let karaTouch = 0;   // after the person scrolls by hand, leave the scrolling to them for a few seconds
+function closeKara() {
+  const el = $('#kara'); if (el.hidden) return;
+  el.hidden = true; kara = null; cancelAnimationFrame(karaRaf);
+  try { karaLock?.release(); } catch {} karaLock = null;
+  overlayClosed();
+}
+$('#kara .k-lines').addEventListener('touchstart', () => { clearTimeout(karaTouch); karaTouch = setTimeout(() => { karaTouch = 0; if (kara) kara.at = -2; }, 4000); }, { passive: true });
+$('#kara .k-lines').addEventListener('click', e => {
+  const p = e.target.closest('p[data-i]'); if (!p || !kara?.lines.length) return;
+  if (S.loadedId === kara.id) { audio.currentTime = kara.lines[+p.dataset.i].t; kara.at = -2; }
+});
+document.addEventListener('visibilitychange', async () => { if (!document.hidden && kara && !karaLock) { try { karaLock = await navigator.wakeLock?.request('screen'); } catch {} } else if (document.hidden) karaLock = null; });
+
 async function editInfo(t) {
   const d = $('#edit'), f = $('form', d).elements;
   for (const k of ['title', 'artist', 'album', 'albumArtist']) f[k].value = t[k] || '';
@@ -3441,7 +3513,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) vizSt
 /* ---------------- phone Back button ---------------- */
 // While a full-screen layer (Now Playing, car mode, a menu, the selection bar) is open, one extra
 // history entry sits on top, so Back closes the layer instead of leaving the app or the page.
-const overlayOpen = () => !$('#np').hidden || !$('#car').hidden || !$('#menu').hidden || S.sel.size > 0;
+const overlayOpen = () => !$('#kara').hidden || !$('#np').hidden || !$('#car').hidden || !$('#menu').hidden || S.sel.size > 0;
 let ignorePop = false;
 function overlayOpened() { if (!history.state?.ov) history.pushState({ ov: 1 }, ''); }
 function overlayClosed() {
@@ -3454,6 +3526,7 @@ addEventListener('popstate', () => {
   if (ignorePop) { ignorePop = false; return; }
   if (!overlayOpen()) return;   // an ordinary page change; the hashchange handler takes it
   if (!$('#menu').hidden) closeMenu();
+  else if (!$('#kara').hidden) closeKara();
   else if (!$('#car').hidden) carMode(false);
   else if (S.sel.size) clearSel();
   else closeNP();
@@ -3546,6 +3619,9 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'kara-open': () => openKara(),
+  'kara-close': () => closeKara(),
+  'kara-size': el => { const v = Math.max(0.7, Math.min(1.7, Math.round((karaScale() + (+el.dataset.d) * 0.15) * 100) / 100)); try { localStorage.setItem('cadence-kara-size', v); } catch {} $('#kara').style.setProperty('--ks', v); if (kara) kara.at = -2; },
   'np-share-card': () => openSongCard(),
   'card-shape': el => openSongCard(el.dataset.v),
   'card-share': () => shareSongCard(),

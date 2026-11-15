@@ -21,7 +21,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=60">
+<link rel="stylesheet" href="styles.css?v=61">
 </head>
 <body>
 <div id="launch" hidden aria-hidden="true">
@@ -160,7 +160,7 @@
   <div class="k-bg"></div>
   <header>
     <button class="icon-btn" data-act="kara-close" data-ic="down" aria-label="Close karaoke"></button>
-    <span class="k-title" translate="no"></span>
+    <span class="k-head"><span class="k-title" translate="no"></span><span class="k-src"></span></span>
     <span class="k-size"><button class="icon-btn k-syncbtn" data-act="kara-sync" aria-label="Line up the lyrics with the song">Sync</button><button class="icon-btn" data-act="kara-size" data-d="-1" aria-label="Smaller lyrics">A−</button><button class="icon-btn" data-act="kara-size" data-d="1" aria-label="Bigger lyrics">A+</button></span>
   </header>
   <div class="k-sync" hidden><span class="k-sync-text"></span><span class="k-sync-btns"><button class="btn" data-act="kara-nudge" data-d="-0.5" aria-label="Lyrics earlier">−0.5 s</button><button class="btn" data-act="kara-nudge" data-d="0.5" aria-label="Lyrics later">+0.5 s</button><button class="btn" data-act="kara-reset">Reset</button></span></div>
@@ -316,7 +316,7 @@
 <input type="file" id="pl-input" multiple accept=".csv,.tsv,.m3u,.m3u8,.pls,.txt,text/csv,audio/x-mpegurl,audio/mpegurl,audio/x-scpls,text/plain" hidden>
 <input type="file" id="dir-input" webkitdirectory multiple hidden>
 <audio id="audio" preload="auto"></audio>
-<script type="module" src="app.js?v=60"></script>
+<script type="module" src="app.js?v=61"></script>
 <script data-goatcounter="https://seylumi.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 <script>
 (function () {

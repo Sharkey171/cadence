@@ -110,3 +110,8 @@ Reset	Athshocraigh	Restablecer	Réinitialiser	Zurücksetzen	Resetuj	Repor	Ripris
 Line up the lyrics with the song	Ailínigh na liricí leis an amhrán	Sincroniza la letra con la canción	Caler les paroles sur la chanson	Text an den Song anpassen	Dopasuj tekst do utworu	Alinhar a letra com a música	Allinea il testo alla canzone	Tekst gelijkzetten met het nummer
 Lyrics earlier	Liricí níos luaithe	Letra antes	Paroles plus tôt	Text früher	Tekst wcześniej	Letra mais cedo	Testo prima	Tekst eerder
 Lyrics later	Liricí níos déanaí	Letra después	Paroles plus tard	Text später	Tekst później	Letra mais tarde	Testo dopo	Tekst later
+Timed lyrics	Liricí le ham	Letra sincronizada	Paroles synchronisées	Getimter Text	Tekst z czasami	Letra sincronizada	Testo sincronizzato	Getimede tekst
+Untimed lyrics	Liricí gan am	Letra sin sincronizar	Paroles non synchronisées	Ungetimter Text	Tekst bez czasów	Letra sem sincronização	Testo non sincronizzato	Niet-getimede tekst
+from the song file	ón gcomhad amhráin	del archivo de la canción	du fichier du titre	aus der Songdatei	z pliku utworu	do ficheiro da música	dal file del brano	uit het muziekbestand
+from LRCLIB	ó LRCLIB	de LRCLIB	de LRCLIB	von LRCLIB	z LRCLIB	do LRCLIB	da LRCLIB	van LRCLIB
+Lyrics from the song file	Liricí ón gcomhad amhráin	Letra del archivo de la canción	Paroles du fichier du titre	Text aus der Songdatei	Tekst z pliku utworu	Letra do ficheiro da música	Testo dal file del brano	Tekst uit het muziekbestand

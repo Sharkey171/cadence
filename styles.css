@@ -634,7 +634,8 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 #kara .k-bg { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(40px) brightness(.35) saturate(1.3); }
 #kara > header, #kara > .k-lines, #kara > footer { position: relative; }
 #kara > header { display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 12px 6px; }
-#kara .k-title { flex: 1; min-width: 0; text-align: center; font-size: 14px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#kara .k-head { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; } #kara .k-src { font-size: 11px; opacity: .6; }
+#kara .k-title { max-width: 100%; text-align: center; font-size: 14px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #kara .k-size { display: flex; } #kara .k-size .icon-btn { font-weight: 800; font-size: 15px; width: 40px; color: #fff; }
 #kara .icon-btn { color: #fff; }
 #kara .k-lines { flex: 1; overflow-y: auto; padding: 0 22px; scrollbar-width: none; -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 80%, transparent); mask-image: linear-gradient(transparent, #000 14%, #000 80%, transparent); }

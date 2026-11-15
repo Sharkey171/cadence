@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 60;
+const APP_VERSION = 61;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -1435,11 +1435,13 @@ async function loadLyrics(t) {
   let plain = '', lines = [], from = '';
   if (!t.url) try {
     const mm = await import('./vendor/music-metadata.js');
-    const ly = (await mm.parseBlob(await getFile(t.id), { skipCovers: true })).common.lyrics || [];
+    const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true }), ly = meta.common.lyrics || [];
+    // timings in a file are milliseconds, or (timeStampFormat 1) audio frames: 1152 samples each for MP3
+    const frameSecs = (meta.format.sampleRate ? 1152 / meta.format.sampleRate : 1152 / 44100);
     plain = ly.map(l => typeof l === 'string' ? l : (l.text || (l.syncText || []).map(x => x.text).join('\n'))).filter(Boolean).join('\n\n').trim();
     const st = ly.find(l => l?.syncText?.length > 3 && l.syncText.some(x => x.timestamp > 0));
-    lines = st ? st.syncText.map(x => ({ t: (x.timestamp || 0) / 1000, text: x.text })) : parseLrc(plain);
-    if (lines.length > 3) plain = plain.replace(/^\[[^\]]*\]\s?/gm, ''); else lines = [];
+    lines = st ? st.syncText.map(x => ({ t: st.timeStampFormat === 1 ? (x.timestamp || 0) * frameSecs : (x.timestamp || 0) / 1000, text: x.text })) : parseLrc(plain);
+    if (lines.length > 3) { plain = plain.replace(/^\[[^\]]*\]\s?/gm, ''); from = 'Lyrics from the song file'; } else lines = [];
   } catch (e) { console.warn('lyrics', e); }
   const saved = 'Lyrics from LRCLIB, saved for offline use';
   if (!plain) {
@@ -1503,11 +1505,12 @@ async function loadKara(t) {
   const el = $('#kara'), box = $('.k-lines', el);
   kara = { id: t.id, lines: [], at: -2, plain: false, ofs: +(await idb.get('kv', 'kofs:' + t.id).catch(() => 0)) || 0, sync: false };
   karaSyncUI();
-  $('.k-title', el).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
+  $('.k-title', el).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`; $('.k-src', el).textContent = '';
   const u = S.artUrls.get(t.artId); $('.k-bg', el).style.backgroundImage = u ? `url('${u}')` : 'none';
   box.className = 'k-lines'; box.innerHTML = '<p class="k-msg">Looking for lyrics…</p>'; box.scrollTop = 0;
   const r = await loadLyrics(t);
   if (!kara || kara.id !== t.id) return;
+  $('.k-src', el).textContent = L(r.lines.length ? 'Timed lyrics' : r.plain ? 'Untimed lyrics' : '') + (r.lines.length || r.plain ? ` · ${L(r.from && /file/.test(r.from) ? 'from the song file' : 'from LRCLIB')}` : '');
   if (r.lines.length) {
     kara.lines = r.lines;
     box.innerHTML = '<div class="k-pad"></div>' + r.lines.map((l, i) => `<p data-i="${i}" translate="no"><span>${esc(l.text) || '♪'}</span></p>`).join('') + '<div class="k-pad"></div>';
@@ -1522,7 +1525,11 @@ function karaFrame() {
   karaRaf = requestAnimationFrame(karaFrame);
   if (S.loadedId !== kara.id) { const t = current(); if (t && t.id !== kara.id) loadKara(t); return; }
   const box = $('#kara .k-lines'), now = audio.currentTime + 0.1 - (kara.ofs || 0);
-  if (kara.plain) { const d = audio.duration; if (isFinite(d) && d > 0 && !karaTouch) box.scrollTop = Math.max(0, (now / d) * (box.scrollHeight - box.clientHeight) - 40); return; }
+  if (kara.plain) {
+    const d = audio.duration, pre = box.querySelector('pre');
+    if (isFinite(d) && d > 0 && pre && !karaTouch) { const prog = Math.max(0, Math.min(1, (now / d - 0.1) / 0.8)); box.scrollTop = Math.max(0, pre.offsetTop + prog * pre.offsetHeight - box.clientHeight * 0.4); }
+    return;
+  }
   const L = kara.lines; if (!L.length) return;
   let i = -1; for (let k = 0; k < L.length && L[k].t <= now; k++) i = k;
   if (i !== kara.at) {

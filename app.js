@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 63;
+const APP_VERSION = 64;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -1515,7 +1515,8 @@ async function openKara() {
 }
 async function loadKara(t) {
   const el = $('#kara'), box = $('.k-lines', el);
-  kara = { id: t.id, lines: [], at: -2, plain: false, ofs: +(await idb.get('kv', 'kofs:' + t.id).catch(() => 0)) || 0, sync: false };
+  const ko = await idb.get('kv', 'kofs:' + t.id).catch(() => null), kv = typeof ko === 'number' ? { b: ko } : ko || {};
+  kara = { id: t.id, lines: [], at: -2, plain: false, ofs: +kv.b || 0, scale: +kv.a || 1, anchor: kv.aL != null ? { L: kv.aL, s: kv.aS } : null, sync: false };
   karaSyncUI();
   $('.k-title', el).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`; $('.k-src', el).textContent = '';
   const u = S.artUrls.get(t.artId); $('.k-bg', el).style.backgroundImage = u ? `url('${u}')` : 'none';
@@ -1536,7 +1537,7 @@ function karaFrame() {
   if (!kara) return;
   karaRaf = requestAnimationFrame(karaFrame);
   if (S.loadedId !== kara.id) { const t = current(); if (t && t.id !== kara.id) loadKara(t); return; }
-  const box = $('#kara .k-lines'), now = audio.currentTime + 0.1 - (kara.ofs || 0);
+  const box = $('#kara .k-lines'), now = (audio.currentTime + 0.1 - (kara.ofs || 0)) / (kara.scale || 1);
   if (kara.plain) {
     const d = audio.duration, pre = box.querySelector('pre');
     if (isFinite(d) && d > 0 && pre && !karaTouch) { const prog = Math.max(0, Math.min(1, (now / d - 0.1) / 0.8)); box.scrollTop = Math.max(0, pre.offsetTop + prog * pre.offsetHeight - box.clientHeight * 0.4); }
@@ -1559,15 +1560,31 @@ function karaFrame() {
     box.querySelector('p.now')?.style.setProperty('--k', (k * 100).toFixed(1) + '%');
   }
 }
-function setKaraOfs(v) {
-  if (!kara) return; kara.ofs = Math.round(v * 10) / 10; kara.at = -2;
-  idb.put('kv', kara.ofs, 'kofs:' + kara.id).catch(() => {}); karaSyncUI();
+function saveKaraTiming() {
+  if (!kara) return; kara.at = -2;
+  idb.put('kv', { b: kara.ofs, a: kara.scale, aL: kara.anchor?.L ?? null, aS: kara.anchor?.s ?? null }, 'kofs:' + kara.id).catch(() => {}); karaSyncUI();
+}
+function setKaraOfs(v) { if (!kara) return; kara.ofs = Math.round(v * 100) / 100; saveKaraTiming(); }
+// A tap during Sync: "this line is being sung now". The first tap lines the lyrics up; a tap on a line well
+// after it measures how much faster or slower the lyrics run, and stretches them to fit the recording.
+function karaSyncTap(line) {
+  const s = audio.currentTime, A = kara.anchor;
+  if (A && Math.abs(line.t - A.L) >= 8) {
+    const a = (s - A.s) / (line.t - A.L);
+    if (a < 0.75 || a > 1.33) { toast('That doesn’t match the first line you tapped. Try again, or Reset.'); return; }
+    kara.scale = Math.round(a * 10000) / 10000; kara.ofs = Math.round((A.s - kara.scale * A.L) * 100) / 100;
+    saveKaraTiming(); toast('Lyrics stretched to fit your song');
+  } else {
+    kara.scale = 1; kara.anchor = { L: line.t, s }; kara.ofs = Math.round((s - line.t) * 100) / 100;
+    saveKaraTiming(); toast('Lined up. If they drift later, tap Sync again on a later line.');
+  }
 }
 function karaSyncUI() {
   const el = $('#kara'), bar = $('.k-sync', el); if (!bar) return;
-  const on = !!kara?.sync, o = kara?.ofs || 0;
-  bar.hidden = !on && !o; el.classList.toggle('syncing', on);
-  $('.k-sync-text', bar).textContent = on ? L('Tap the line being sung right now') : o > 0 ? L(`Lyrics moved later by ${o.toFixed(1)} s`) : L(`Lyrics moved earlier by ${(-o).toFixed(1)} s`);
+  const on = !!kara?.sync, o = kara?.ofs || 0, stretched = kara && Math.abs((kara.scale || 1) - 1) > 0.001;
+  bar.hidden = !on && !o && !stretched; el.classList.toggle('syncing', on);
+  $('.k-sync-text', bar).textContent = on ? L(kara.anchor ? 'Tap the line being sung now (a later line fixes drift)' : 'Tap the line being sung right now')
+    : stretched ? L('Lyrics timing stretched to fit your song') : o > 0 ? L(`Lyrics moved later by ${o.toFixed(1)} s`) : L(`Lyrics moved earlier by ${(-o).toFixed(1)} s`);
   $('[data-act=kara-sync]', el)?.classList.toggle('on', on);
 }
 // Every timed version the library has for this song, to choose from when the automatic match is wrong.
@@ -1586,7 +1603,7 @@ async function chooseLyricVersion(ev) {
   openMenu(vs.map(x => ({ label: `${x.albumName || x.trackName} · ${mmss(x.duration || 0)}${cur && Math.abs((x.duration || 0) - cur) < 0.6 ? '  ✓' : ''}`, icon: 'text', fn: async () => {
     const r = { plain: x.plainLyrics || x.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: x.syncedLyrics, dur: x.duration, pick: true };
     await idb.put('kv', r, 'lyr:' + t.id).catch(() => {});
-    if (kara) { kara.ofs = 0; idb.put('kv', 0, 'kofs:' + t.id).catch(() => {}); }
+    if (kara) { kara.ofs = 0; kara.scale = 1; kara.anchor = null; idb.put('kv', {}, 'kofs:' + t.id).catch(() => {}); }
     toast('Lyrics version changed'); loadKara(t);
   } })), ev, D ? `Your song is ${mmss(D)} long` : 'Lyrics versions');
 }
@@ -1601,8 +1618,8 @@ $('#kara .k-lines').addEventListener('touchstart', () => { clearTimeout(karaTouc
 $('#kara .k-lines').addEventListener('click', e => {
   const p = e.target.closest('p[data-i]'); if (!p || !kara?.lines.length || S.loadedId !== kara.id) return;
   const line = kara.lines[+p.dataset.i];
-  if (kara.sync) { setKaraOfs(audio.currentTime - line.t); kara.sync = false; karaSyncUI(); toast('Lyrics lined up with your song'); }
-  else { audio.currentTime = line.t + (kara.ofs || 0); kara.at = -2; }
+  if (kara.sync) { kara.sync = false; karaSyncTap(line); karaSyncUI(); }
+  else { audio.currentTime = (kara.scale || 1) * line.t + (kara.ofs || 0); kara.at = -2; }
 });
 document.addEventListener('visibilitychange', async () => { if (!document.hidden && kara && !karaLock) { try { karaLock = await navigator.wakeLock?.request('screen'); } catch {} } else if (document.hidden) karaLock = null; });
 
@@ -3679,7 +3696,7 @@ const A = {
   'kara-version': (el, e) => chooseLyricVersion(e),
   'kara-sync': () => { if (!kara?.lines.length) return toast('Syncing needs timed lyrics'); kara.sync = !kara.sync; karaSyncUI(); },
   'kara-nudge': el => { if (kara?.lines.length) setKaraOfs((kara.ofs || 0) + (+el.dataset.d)); },
-  'kara-reset': () => { if (kara) { setKaraOfs(0); kara.sync = false; karaSyncUI(); } },
+  'kara-reset': () => { if (kara) { kara.ofs = 0; kara.scale = 1; kara.anchor = null; kara.sync = false; saveKaraTiming(); } },
   'kara-close': () => closeKara(),
   'kara-size': el => { const v = Math.max(0.7, Math.min(1.7, Math.round((karaScale() + (+el.dataset.d) * 0.15) * 100) / 100)); try { localStorage.setItem('cadence-kara-size', v); } catch {} $('#kara').style.setProperty('--ks', v); if (kara) kara.at = -2; },
   'np-share-card': () => openSongCard(),

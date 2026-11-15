@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 62;
+const APP_VERSION = 63;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -227,6 +227,7 @@ const TR_PATTERNS = [
   [/^Getting “(.+)”: song (\d+) of (\d+)…$/, m => P('pkget', { x: I18N.d[m[1]] || m[1], a: m[2], b: m[3] })],
   [/^Lyrics moved later by ([\d.]+) s$/, m => P('kofsl', { x: m[1] })],
   [/^Lyrics moved earlier by ([\d.]+) s$/, m => P('kofse', { x: m[1] })],
+  [/^Your song is (\d+:\d\d) long$/, m => P('songlen', { x: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1436,7 +1437,7 @@ async function findAllCovers() {
 let lyrLive = null;   // { id, lines, at } while timed lyrics are on screen
 // Finds lyrics: inside the file first, then saved ones, then online. Returns { plain, lines, from, note }.
 async function loadLyrics(t) {
-  let plain = '', lines = [], from = '', cached = null;
+  let plain = '', lines = [], from = '', cached = null, lyrDur = null;
   if (!t.url) try {
     const mm = await import('./vendor/music-metadata.js');
     const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true }), ly = meta.common.lyrics || [];
@@ -1451,9 +1452,9 @@ async function loadLyrics(t) {
   if (!plain) {
     const c = await idb.get('kv', 'lyr:' + t.id).catch(() => null);
     // saved timed lyrics are only trusted if they were matched to a recording of this length (older saves weren't checked)
-    const D = songLength(t), stale = c && c.synced && (c.dur == null || (D && Math.abs(c.dur - D) > 4));
+    const D = songLength(t), stale = c && c.synced && !c.pick && (c.dur == null || (D && Math.abs(c.dur - D) > 4));
     if (stale && typeof c === 'object') cached = c;
-    if (c && !(stale && navigator.onLine && S.online !== false)) { plain = typeof c === 'string' ? c : c.plain || ''; lines = stale ? [] : parseLrc(c.synced); const o = lrcOffset(c.synced); if (o) lines.forEach(l => { l.t -= o; }); from = saved; }
+    if (c && !(stale && navigator.onLine && S.online !== false)) { lyrDur = c.dur || null; plain = typeof c === 'string' ? c : c.plain || ''; lines = stale ? [] : parseLrc(c.synced); const o = lrcOffset(c.synced); if (o) lines.forEach(l => { l.t -= o; }); from = saved; }
   }
   let note = 'No lyrics found for this song. If the title or artist looks wrong, fix it with Edit info and the search runs again.';
   if (!plain) {
@@ -1461,14 +1462,14 @@ async function loadLyrics(t) {
     else if (!navigator.onLine) note = 'No lyrics are saved for this song yet. Connect to the internet and open this again to look them up.';
     else try {
       const r = await findLyricsOnline(t);
-      if (r) { plain = r.plain; lines = parseLrc(r.synced); from = saved; idb.put('kv', r, 'lyr:' + t.id).catch(() => {}); }
+      if (r) { plain = r.plain; lines = parseLrc(r.synced); lyrDur = r.dur || null; from = saved; idb.put('kv', r, 'lyr:' + t.id).catch(() => {}); }
     } catch (e) { console.warn('lyrics lookup', e); note = 'The lyrics service could not be reached. Try again later.'; }
   }
   if (!plain && cached) {   // couldn't recheck an older saved match: use it (timed only if its length wasn't known to be wrong)
     plain = cached.plain || ''; from = saved;
     const D = songLength(t); lines = cached.dur != null && D && Math.abs(cached.dur - D) > 4 ? [] : parseLrc(cached.synced);
   }
-  return { plain, lines: lines.length > 3 ? lines : [], from, note };
+  return { plain, lines: lines.length > 3 ? lines : [], from, note, dur: lyrDur };
 }
 async function showLyrics(t) {
   const d = $('#lyr'), pre = $('pre', d), box = $('.lrc', d), src = $('.lyr-src', d), head = `${t.title} · ${t.artist || 'Unknown artist'}`;
@@ -1521,9 +1522,9 @@ async function loadKara(t) {
   box.className = 'k-lines'; box.innerHTML = '<p class="k-msg">Looking for lyrics…</p>'; box.scrollTop = 0;
   const r = await loadLyrics(t);
   if (!kara || kara.id !== t.id) return;
-  $('.k-src', el).textContent = L(r.lines.length ? 'Timed lyrics' : r.plain ? 'Untimed lyrics' : '') + (r.lines.length || r.plain ? ` · ${L(r.from && /file/.test(r.from) ? 'from the song file' : 'from LRCLIB')}` : '');
+  { const D = songLength(t); $('.k-src', el).textContent = L(r.lines.length ? 'Timed lyrics' : r.plain ? 'Untimed lyrics' : '') + (r.lines.length || r.plain ? ` · ${L(r.from && /file/.test(r.from) ? 'from the song file' : 'from LRCLIB')}` : '') + (r.lines.length && r.dur ? ` · ${mmss(r.dur)} / ${D ? mmss(D) : '?'}` : ''); }
   if (r.lines.length) {
-    kara.lines = r.lines;
+    kara.lines = r.lines; kara.dur = r.dur || null;
     box.innerHTML = '<div class="k-pad"></div>' + r.lines.map((l, i) => `<p data-i="${i}" translate="no"><span>${esc(l.text) || '♪'}</span></p>`).join('') + '<div class="k-pad"></div>';
   } else if (r.plain) {
     kara.plain = true; box.classList.add('plain');
@@ -1568,6 +1569,26 @@ function karaSyncUI() {
   bar.hidden = !on && !o; el.classList.toggle('syncing', on);
   $('.k-sync-text', bar).textContent = on ? L('Tap the line being sung right now') : o > 0 ? L(`Lyrics moved later by ${o.toFixed(1)} s`) : L(`Lyrics moved earlier by ${(-o).toFixed(1)} s`);
   $('[data-act=kara-sync]', el)?.classList.toggle('on', on);
+}
+// Every timed version the library has for this song, to choose from when the automatic match is wrong.
+async function lyricVersions(t) {
+  const q = new URLSearchParams({ track_name: cleanTitle(t.title) }); if (t.artist) q.set('artist_name', t.artist);
+  const list = await fetchJSON('https://lrclib.net/api/search?' + q);
+  return list.filter(x => x.syncedLyrics && (!t.artist || sameArtist(x.artistName, t.artist))).sort((a, b) => (a.duration || 0) - (b.duration || 0));
+}
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+async function chooseLyricVersion(ev) {
+  const t = current(); if (!t || !kara || kara.id !== t.id) return;
+  if (!navigator.onLine) return toast('Connect to the internet to see other versions');
+  let vs; try { vs = await lyricVersions(t); } catch { return toast('The lyrics service could not be reached. Try again later.'); }
+  if (!vs.length) return toast('No other timed versions of this song were found');
+  const D = songLength(t), cur = kara.dur;
+  openMenu(vs.map(x => ({ label: `${x.albumName || x.trackName} · ${mmss(x.duration || 0)}${cur && Math.abs((x.duration || 0) - cur) < 0.6 ? '  ✓' : ''}`, icon: 'text', fn: async () => {
+    const r = { plain: x.plainLyrics || x.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: x.syncedLyrics, dur: x.duration, pick: true };
+    await idb.put('kv', r, 'lyr:' + t.id).catch(() => {});
+    if (kara) { kara.ofs = 0; idb.put('kv', 0, 'kofs:' + t.id).catch(() => {}); }
+    toast('Lyrics version changed'); loadKara(t);
+  } })), ev, D ? `Your song is ${mmss(D)} long` : 'Lyrics versions');
 }
 let karaTouch = 0;   // after the person scrolls by hand, leave the scrolling to them for a few seconds
 function closeKara() {
@@ -3655,6 +3676,7 @@ const A = {
   'whats-new': showWhatsNew,
   'share-app': shareApp,
   'kara-open': () => openKara(),
+  'kara-version': (el, e) => chooseLyricVersion(e),
   'kara-sync': () => { if (!kara?.lines.length) return toast('Syncing needs timed lyrics'); kara.sync = !kara.sync; karaSyncUI(); },
   'kara-nudge': el => { if (kara?.lines.length) setKaraOfs((kara.ofs || 0) + (+el.dataset.d)); },
   'kara-reset': () => { if (kara) { setKaraOfs(0); kara.sync = false; karaSyncUI(); } },

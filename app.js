@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 59;
+const APP_VERSION = 60;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -224,6 +224,8 @@ const TR_PATTERNS = [
   [/^(\d+) of (\d+) right · Best: (\d+)$/, m => P('gres', { a: m[1], b: m[2], c: m[3] })],
   [/^(\d+) songs · (\d+) min · about (\d+) MB$/, m => P('pksize', { a: m[1], b: m[2], c: m[3] })],
   [/^Getting “(.+)”: song (\d+) of (\d+)…$/, m => P('pkget', { x: I18N.d[m[1]] || m[1], a: m[2], b: m[3] })],
+  [/^Lyrics moved later by ([\d.]+) s$/, m => P('kofsl', { x: m[1] })],
+  [/^Lyrics moved earlier by ([\d.]+) s$/, m => P('kofse', { x: m[1] })],
   [/^Speed ([\d.]+)×$/, m => P('speed', { x: m[1] })],
   [/^(\d+) minutes$/, m => P('minutes', { n: m[1] })],
   [/^Stopping in (\d+) minutes$/, m => P('stoppingin', { n: m[1] })],
@@ -1363,6 +1365,7 @@ async function findLyricsOnline(t) {
   const best = timed || c[0];
   return { plain: best.plainLyrics || best.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: timed ? timed.syncedLyrics : '' };
 }
+const lrcOffset = text => { const m = /\[offset:\s*([+-]?\d+)\]/i.exec(String(text || '')); return m ? +m[1] / 1000 : 0; };
 const parseLrc = text => String(text || '').split('\n').map(l => { const m = /^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/.exec(l.trim()); return m ? { t: +m[1] * 60 + +m[2], text: m[3] } : null; }).filter(Boolean);
 
 async function artistBio(name) {
@@ -1441,7 +1444,7 @@ async function loadLyrics(t) {
   const saved = 'Lyrics from LRCLIB, saved for offline use';
   if (!plain) {
     const c = await idb.get('kv', 'lyr:' + t.id).catch(() => null);
-    if (c) { plain = typeof c === 'string' ? c : c.plain || ''; lines = parseLrc(c.synced); from = saved; }
+    if (c) { plain = typeof c === 'string' ? c : c.plain || ''; lines = parseLrc(c.synced); const o = lrcOffset(c.synced); if (o) lines.forEach(l => { l.t -= o; }); from = saved; }
   }
   let note = 'No lyrics found for this song. If the title or artist looks wrong, fix it with Edit info and the search runs again.';
   if (!plain) {
@@ -1498,7 +1501,8 @@ async function openKara() {
 }
 async function loadKara(t) {
   const el = $('#kara'), box = $('.k-lines', el);
-  kara = { id: t.id, lines: [], at: -2, plain: false };
+  kara = { id: t.id, lines: [], at: -2, plain: false, ofs: +(await idb.get('kv', 'kofs:' + t.id).catch(() => 0)) || 0, sync: false };
+  karaSyncUI();
   $('.k-title', el).textContent = `${t.title} · ${t.artist || 'Unknown artist'}`;
   const u = S.artUrls.get(t.artId); $('.k-bg', el).style.backgroundImage = u ? `url('${u}')` : 'none';
   box.className = 'k-lines'; box.innerHTML = '<p class="k-msg">Looking for lyrics…</p>'; box.scrollTop = 0;
@@ -1517,7 +1521,7 @@ function karaFrame() {
   if (!kara) return;
   karaRaf = requestAnimationFrame(karaFrame);
   if (S.loadedId !== kara.id) { const t = current(); if (t && t.id !== kara.id) loadKara(t); return; }
-  const box = $('#kara .k-lines'), now = audio.currentTime + 0.15;
+  const box = $('#kara .k-lines'), now = audio.currentTime + 0.1 - (kara.ofs || 0);
   if (kara.plain) { const d = audio.duration; if (isFinite(d) && d > 0 && !karaTouch) box.scrollTop = Math.max(0, (now / d) * (box.scrollHeight - box.clientHeight) - 40); return; }
   const L = kara.lines; if (!L.length) return;
   let i = -1; for (let k = 0; k < L.length && L[k].t <= now; k++) i = k;
@@ -1530,11 +1534,22 @@ function karaFrame() {
   }
   if (i >= 0) {
     // fill the line at singing pace: across the time to the next line, but not slower than the words need
-    const next = L[i + 1]?.t ?? (L[i].t + 5), words = Math.max(1, (L[i].text || '').length);
-    const dur = Math.max(1.2, Math.min(next - L[i].t, words * 0.11 + 0.8));
+    const next = L[i + 1]?.t ?? (L[i].t + 5), gap = next - L[i].t;
+    const dur = Math.max(1, Math.min(gap * 0.92, 9));   // most of the time until the next line; long gaps are instrumental
     const k = Math.max(0, Math.min(1, (now - L[i].t) / dur));
     box.querySelector('p.now')?.style.setProperty('--k', (k * 100).toFixed(1) + '%');
   }
+}
+function setKaraOfs(v) {
+  if (!kara) return; kara.ofs = Math.round(v * 10) / 10; kara.at = -2;
+  idb.put('kv', kara.ofs, 'kofs:' + kara.id).catch(() => {}); karaSyncUI();
+}
+function karaSyncUI() {
+  const el = $('#kara'), bar = $('.k-sync', el); if (!bar) return;
+  const on = !!kara?.sync, o = kara?.ofs || 0;
+  bar.hidden = !on && !o; el.classList.toggle('syncing', on);
+  $('.k-sync-text', bar).textContent = on ? L('Tap the line being sung right now') : o > 0 ? L(`Lyrics moved later by ${o.toFixed(1)} s`) : L(`Lyrics moved earlier by ${(-o).toFixed(1)} s`);
+  $('[data-act=kara-sync]', el)?.classList.toggle('on', on);
 }
 let karaTouch = 0;   // after the person scrolls by hand, leave the scrolling to them for a few seconds
 function closeKara() {
@@ -1545,8 +1560,10 @@ function closeKara() {
 }
 $('#kara .k-lines').addEventListener('touchstart', () => { clearTimeout(karaTouch); karaTouch = setTimeout(() => { karaTouch = 0; if (kara) kara.at = -2; }, 4000); }, { passive: true });
 $('#kara .k-lines').addEventListener('click', e => {
-  const p = e.target.closest('p[data-i]'); if (!p || !kara?.lines.length) return;
-  if (S.loadedId === kara.id) { audio.currentTime = kara.lines[+p.dataset.i].t; kara.at = -2; }
+  const p = e.target.closest('p[data-i]'); if (!p || !kara?.lines.length || S.loadedId !== kara.id) return;
+  const line = kara.lines[+p.dataset.i];
+  if (kara.sync) { setKaraOfs(audio.currentTime - line.t); kara.sync = false; karaSyncUI(); toast('Lyrics lined up with your song'); }
+  else { audio.currentTime = line.t + (kara.ofs || 0); kara.at = -2; }
 });
 document.addEventListener('visibilitychange', async () => { if (!document.hidden && kara && !karaLock) { try { karaLock = await navigator.wakeLock?.request('screen'); } catch {} } else if (document.hidden) karaLock = null; });
 
@@ -3620,6 +3637,9 @@ const A = {
   'whats-new': showWhatsNew,
   'share-app': shareApp,
   'kara-open': () => openKara(),
+  'kara-sync': () => { if (!kara?.lines.length) return toast('Syncing needs timed lyrics'); kara.sync = !kara.sync; karaSyncUI(); },
+  'kara-nudge': el => { if (kara?.lines.length) setKaraOfs((kara.ofs || 0) + (+el.dataset.d)); },
+  'kara-reset': () => { if (kara) { setKaraOfs(0); kara.sync = false; karaSyncUI(); } },
   'kara-close': () => closeKara(),
   'kara-size': el => { const v = Math.max(0.7, Math.min(1.7, Math.round((karaScale() + (+el.dataset.d) * 0.15) * 100) / 100)); try { localStorage.setItem('cadence-kara-size', v); } catch {} $('#kara').style.setProperty('--ks', v); if (kara) kara.at = -2; },
   'np-share-card': () => openSongCard(),

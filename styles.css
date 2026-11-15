@@ -650,3 +650,8 @@ body.mini-win { margin: 0; height: 100vh; display: flex; flex-direction: column;
 #kara .k-lines.plain pre { white-space: pre-wrap; font: inherit; font-size: calc(24px * var(--ks)); font-weight: 700; line-height: 1.5; margin: 0 0 40vh; }
 #kara > footer { display: flex; justify-content: center; align-items: center; gap: 22px; padding: 10px 0 calc(18px + env(safe-area-inset-bottom)); }
 #kara > footer .pp { width: 64px; height: 64px; }
+#kara .k-syncbtn { width: auto !important; padding: 0 10px; font-size: 14px !important; border-radius: 999px; }
+#kara .k-syncbtn.on { background: var(--accent); color: var(--accent-ink, #1a0e0a) !important; }
+#kara .k-sync { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 0 14px 6px; padding: 10px 12px; border-radius: 14px; background: rgba(0,0,0,.35); font-size: 14px; text-align: center; }
+#kara .k-sync[hidden] { display: none; } #kara .k-sync-btns { display: flex; gap: 6px; } #kara .k-sync .btn { padding: 6px 12px; font-size: 13px; }
+#kara.syncing .k-lines p[data-i] { outline: 1px dashed rgba(255,255,255,.18); outline-offset: 4px; border-radius: 6px; }

@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 61;
+const APP_VERSION = 62;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 62, date: '2026-11-15', notes: ['Fixed: timed lyrics could come from a different version of a song (for example a live recording), so they ran ahead of the music'] },
   { v: 56, date: '2026-11-14', notes: ['Podcasts: choose the country for the Top 50 charts and search (over 60 countries)', 'Seylumi now guesses your country better, so Irish phones set to UK English get Irish charts and radio'] },
   { v: 55, date: '2026-11-14', notes: ['Get your music in: a step-by-step guide for adding music from your phone, computer or online purchases', 'Free music packs to keep (chill, classical, acoustic, piano, jazz, rock, electronic, hip hop), added in one tap', 'Buy music to keep: search Bandcamp, 7digital and Qobuz for songs you own forever'] },
   { v: 49, date: '2026-11-13', notes: ['Linked music folders: no more hunting for the Reconnect button. Tap anything (like a song) and choose Allow, and it plays straight away'] },
@@ -1352,18 +1353,21 @@ async function fetchJSON(url) { const r = await fetch(url); if (!r.ok) throw new
 const sameArtist = (a, b) => { a = norm(a).replace(/^the /, ''); b = norm(b).replace(/^the /, ''); return !!a && !!b && (a.includes(b) || b.includes(a)); };
 
 // Returns { plain, synced } — synced is LRC text with a time on every line, when the service has it.
+// The song's real length: from the playing file when it's loaded (most accurate), else from its details.
+const songLength = t => (S.loadedId === t.id && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0) || t.duration || 0;
 async function findLyricsOnline(t) {
   const q = new URLSearchParams({ track_name: cleanTitle(t.title) });
   if (t.artist) q.set('artist_name', t.artist);
   const list = await fetchJSON('https://lrclib.net/api/search?' + q);
   const c = list.filter(x => (x.plainLyrics || x.syncedLyrics) && (!t.artist || sameArtist(x.artistName, t.artist)));
   if (!c.length) return list.some(x => x.instrumental) ? { plain: 'This song is instrumental.', synced: '' } : null;
-  const off = x => t.duration ? Math.abs((x.duration || 0) - t.duration) : 0;
+  const D = songLength(t), off = x => D ? Math.abs((x.duration || 0) - D) : 999;
   c.sort((x, y) => off(x) - off(y));
-  // Timed lyrics only line up when they were made for a recording of the same length.
+  // Timed lyrics only line up when they were made for a recording of the same length; if the length
+  // isn't known, no timed lyrics are used rather than possibly the wrong version's.
   const timed = c.find(x => x.syncedLyrics && off(x) < 4);
   const best = timed || c[0];
-  return { plain: best.plainLyrics || best.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: timed ? timed.syncedLyrics : '' };
+  return { plain: best.plainLyrics || best.syncedLyrics.replace(/^\[[^\]]*\]\s?/gm, ''), synced: timed ? timed.syncedLyrics : '', dur: timed ? timed.duration : null };
 }
 const lrcOffset = text => { const m = /\[offset:\s*([+-]?\d+)\]/i.exec(String(text || '')); return m ? +m[1] / 1000 : 0; };
 const parseLrc = text => String(text || '').split('\n').map(l => { const m = /^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$/.exec(l.trim()); return m ? { t: +m[1] * 60 + +m[2], text: m[3] } : null; }).filter(Boolean);
@@ -1432,7 +1436,7 @@ async function findAllCovers() {
 let lyrLive = null;   // { id, lines, at } while timed lyrics are on screen
 // Finds lyrics: inside the file first, then saved ones, then online. Returns { plain, lines, from, note }.
 async function loadLyrics(t) {
-  let plain = '', lines = [], from = '';
+  let plain = '', lines = [], from = '', cached = null;
   if (!t.url) try {
     const mm = await import('./vendor/music-metadata.js');
     const meta = await mm.parseBlob(await getFile(t.id), { skipCovers: true }), ly = meta.common.lyrics || [];
@@ -1446,7 +1450,10 @@ async function loadLyrics(t) {
   const saved = 'Lyrics from LRCLIB, saved for offline use';
   if (!plain) {
     const c = await idb.get('kv', 'lyr:' + t.id).catch(() => null);
-    if (c) { plain = typeof c === 'string' ? c : c.plain || ''; lines = parseLrc(c.synced); const o = lrcOffset(c.synced); if (o) lines.forEach(l => { l.t -= o; }); from = saved; }
+    // saved timed lyrics are only trusted if they were matched to a recording of this length (older saves weren't checked)
+    const D = songLength(t), stale = c && c.synced && (c.dur == null || (D && Math.abs(c.dur - D) > 4));
+    if (stale && typeof c === 'object') cached = c;
+    if (c && !(stale && navigator.onLine && S.online !== false)) { plain = typeof c === 'string' ? c : c.plain || ''; lines = stale ? [] : parseLrc(c.synced); const o = lrcOffset(c.synced); if (o) lines.forEach(l => { l.t -= o; }); from = saved; }
   }
   let note = 'No lyrics found for this song. If the title or artist looks wrong, fix it with Edit info and the search runs again.';
   if (!plain) {
@@ -1456,6 +1463,10 @@ async function loadLyrics(t) {
       const r = await findLyricsOnline(t);
       if (r) { plain = r.plain; lines = parseLrc(r.synced); from = saved; idb.put('kv', r, 'lyr:' + t.id).catch(() => {}); }
     } catch (e) { console.warn('lyrics lookup', e); note = 'The lyrics service could not be reached. Try again later.'; }
+  }
+  if (!plain && cached) {   // couldn't recheck an older saved match: use it (timed only if its length wasn't known to be wrong)
+    plain = cached.plain || ''; from = saved;
+    const D = songLength(t); lines = cached.dur != null && D && Math.abs(cached.dur - D) > 4 ? [] : parseLrc(cached.synced);
   }
   return { plain, lines: lines.length > 3 ? lines : [], from, note };
 }

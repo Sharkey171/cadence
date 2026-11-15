@@ -133,7 +133,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 64;
+const APP_VERSION = 65;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +148,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 65, date: '2026-11-15', notes: ['Add music from Google Drive: + → From Google Drive shows how to pick songs from your Drive'] },
   { v: 62, date: '2026-11-15', notes: ['Fixed: timed lyrics could come from a different version of a song (for example a live recording), so they ran ahead of the music'] },
   { v: 56, date: '2026-11-14', notes: ['Podcasts: choose the country for the Top 50 charts and search (over 60 countries)', 'Seylumi now guesses your country better, so Irish phones set to UK English get Irish charts and radio'] },
   { v: 55, date: '2026-11-14', notes: ['Get your music in: a step-by-step guide for adding music from your phone, computer or online purchases', 'Free music packs to keep (chill, classical, acoustic, piano, jazz, rock, electronic, hip hop), added in one tap', 'Buy music to keep: search Bandcamp, 7digital and Qobuz for songs you own forever'] },
@@ -1961,6 +1962,16 @@ function getMusicView(where, arg) {
     `<div class="gm-opt"><h2>Use Seylumi on the computer too</h2><p translate="no">${t_('Open <b>{host}</b> in Chrome or Edge on the computer, then <b>Add music → Link a folder</b> and pick your Music folder. Easiest if you listen at your desk.', { host: esc(APP_LINK.replace(/^https:\/\//, '').replace(/welcome\.html$/, '')) })}</p></div>`,
     `<div class="gm-opt"><h2>Copy to your phone with a cable</h2>${steps(['Plug your phone into the computer with its charging cable.', 'On the phone, tap the <b>USB notification</b> and choose <b>File transfer</b>.', 'On the computer, open the phone in <b>File Explorer</b> (it appears like a USB stick), then open its <b>Music</b> folder.', 'Drag your music folders from the computer into it. Big collections can take a while.', 'Then, on the phone, follow <a href="#/getmusic/phone">Music on this phone</a>.'])}</div>`,
     `<div class="gm-opt"><h2>Send through Google Drive</h2>${steps(['On the computer, go to <b>drive.google.com</b> and drag your music in.', 'On the phone, open the <b>Drive</b> app, select the songs, tap <b>⋮</b> and choose <b>Download</b>.', 'They go to your phone’s <b>Download</b> folder. Then follow <a href="#/getmusic/phone">Music on this phone</a> and choose Download.'])}</div>`);
+  if (where === 'drive') return setView(back, '<h1>Music in Google Drive</h1>',
+    P === 'android' ? steps([
+      'Tap <b>Add files</b> below.', 'In the window that opens, tap the <b>☰ menu</b> (top left) and choose <b>Drive</b>.',
+      'Open the folder with your music. <b>Press and hold</b> one song to select it, then tap the others you want.', 'Tap <b>Select</b> (top right). Seylumi copies those songs onto your phone.'])
+    : P === 'ios' ? steps([
+      'Install the <b>Google Drive</b> app and sign in, if you haven’t already.', 'Tap <b>Add files</b> below, then <b>Browse</b>.', 'Choose <b>Google Drive</b> in the list of locations. If it isn’t there, tap <b>⋯ → Edit</b> and switch it on.', 'Open your music folder, tap <b>Select</b>, pick your songs and tap <b>Open</b>.'])
+    : steps([
+      'Install <b>Google Drive for desktop</b> (free from Google). Your Drive then appears as a normal folder on the computer.', 'Click <b>Link a folder</b> below and choose your music folder inside Google Drive.', 'Or, without installing anything: at <b>drive.google.com</b>, select your music, choose <b>Download</b>, then add the downloaded files here.']),
+    para(P === 'computer' ? 'Linked folders play from where they are; Seylumi doesn’t make a second copy.' : 'Only the songs you pick are copied. They then play with no internet, and they use storage on your phone: about 1 GB for every 100 to 200 songs. Your Drive isn’t changed.'),
+    addBtns);
   if (where === 'bought') return setView(back, '<h1>Music I bought online</h1>',
     steps(['Sign in to the shop where you bought it (Bandcamp, 7digital, Qobuz and so on) and find your <b>purchases</b> or <b>collection</b>.', 'Choose <b>Download</b>, and pick <b>MP3</b> if asked (it plays everywhere).', 'If you get a <b>.zip</b> file, open your <b>Files</b> app, tap the zip and choose <b>Extract</b>.',
       dev === 'computer' ? 'Then follow <a href="#/getmusic/phone">Music on this computer</a> and choose the <b>Downloads</b> folder.' : 'Then follow <a href="#/getmusic/phone">Music on this phone</a> and choose the <b>Download</b> folder.']),
@@ -1991,7 +2002,7 @@ function getMusicView(where, arg) {
   // the start: where is your music?
   const card = (href, icon, title, sub) => `<a class="gm-card" href="${href}"><span class="gm-ic">${ic(icon)}</span><span><b>${title}</b><small>${sub}</small></span></a>`;
   setView('<h1>Get your music in</h1>', '<p class="muted">Where is your music now?</p>',
-    `<div class="gm-cards">${card('#/getmusic/phone', 'folder', dev === 'computer' ? 'On this computer' : 'On this phone', 'Songs already saved here')}${P !== 'computer' ? card('#/getmusic/computer', 'library', 'On my computer', 'Get it from a laptop or PC') : ''}${card('#/getmusic/bought', 'save', 'I bought music online', 'Downloads from shops like Bandcamp or 7digital')}${card('#/getmusic/buy', 'heart', 'Buy music to keep', 'Chart hits and favourite artists, yours forever')}</div>`,
+    `<div class="gm-cards">${card('#/getmusic/phone', 'folder', dev === 'computer' ? 'On this computer' : 'On this phone', 'Songs already saved here')}${P !== 'computer' ? card('#/getmusic/computer', 'library', 'On my computer', 'Get it from a laptop or PC') : ''}${card('#/getmusic/drive', 'globe', 'In Google Drive', 'Pick songs from your Drive')}${card('#/getmusic/bought', 'save', 'I bought music online', 'Downloads from shops like Bandcamp or 7digital')}${card('#/getmusic/buy', 'heart', 'Buy music to keep', 'Chart hits and favourite artists, yours forever')}</div>`,
     `<h2 id="free-packs">No music yet? Start with a free pack</h2><p class="muted" style="margin-top:-6px">Free, legal music to keep, added in one tap.</p>`,
     `<div class="grid">${PACKS.map(p => `<a class="card" href="#/getmusic/pack/${p.id}"><div class="art mix-art" style="background:linear-gradient(135deg,${p.bg})">${ic('note')}</div><div class="card-title" data-tr>${p.name}</div><div class="card-sub" data-tr>Free · about 12 songs</div></a>`).join('')}</div>`);
 }
@@ -3621,6 +3632,7 @@ const A = {
   'add-music': (el, e) => openMenu([
     { label: 'Add files', icon: 'file', fn: () => $('#file-input').click() },
     (window.showDirectoryPicker || isDesktop()) && { label: window.showDirectoryPicker ? 'Link a folder' : 'Add a folder', icon: 'folder', fn: addFolder },
+    { label: 'From Google Drive', icon: 'globe', fn: () => nav('#/getmusic/drive') },
     { label: 'Help me add my music', icon: 'text', fn: () => nav('#/getmusic') },
     { label: 'Free music packs', icon: 'note', fn: () => nav('#/getmusic') },
     { label: 'Buy music to keep', icon: 'heart', fn: () => nav('#/getmusic/buy') },

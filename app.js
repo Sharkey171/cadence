@@ -31,6 +31,17 @@ function smartShuffle(ids) {
   };
   return [...spread(fresh), ...spread(heard)];
 }
+// Problem log: the last 60 errors and playback failures, kept only on this device, for "Copy problem report".
+const DIAG_KEY = 'cadence-diag';
+function diag(kind, msg, extra) {
+  try {
+    const list = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]');
+    list.push({ at: new Date().toISOString(), v: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 0, kind, msg: String(msg || '').slice(0, 300), ...(extra || {}) });
+    localStorage.setItem(DIAG_KEY, JSON.stringify(list.slice(-60)));
+  } catch {}
+}
+addEventListener('error', e => diag('error', `${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}:${e.colno}`));
+addEventListener('unhandledrejection', e => diag('promise', e.reason?.stack?.split('\n').slice(0, 2).join(' | ') || e.reason?.message || e.reason));
 const shuffleArr = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const AUDIO_EXT = /\.(mp3|m4a|m4b|aac|flac|wav|ogg|oga|opus|weba)$/i;
 const isDesktop = () => matchMedia('(min-width: 769px)').matches;
@@ -133,7 +144,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 69;
+const APP_VERSION = 70;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -148,6 +159,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 70, date: '2026-11-19', notes: ['Copy problem report (Settings → About): if something goes wrong, send it to the developer to help fix it. It never includes song names'] },
   { v: 68, date: '2026-11-15', notes: ['Storage manager (Settings → Manage storage): see what is using space, and free it by removing played podcast episodes, downloads or the biggest songs'] },
   { v: 67, date: '2026-11-15', notes: ['Tidy my library (Settings): cleans up messy song names, fills in missing artists, unifies artist spellings and looks up missing albums, years and genres. You approve every fix, and it can be undone', 'A welcome tour for people opening Seylumi for the first time'] },
   { v: 65, date: '2026-11-15', notes: ['Add music from Google Drive: + → From Google Drive shows how to pick songs from your Drive'] },
@@ -966,6 +978,7 @@ async function loadCurrent(autoplay = true, startAt = 0, fade = 0) {
     if (autoplay) { ac?.resume?.().catch(() => {}); await el.play(); el._resumeUntil = performance.now() + 2000; if (fade) ramp(el, 0, 1, fade); }
     errStreak = 0;
   } catch (e) {
+    diag('play', `${e?.name || 'Error'}: ${e?.message || e}`, { src: t.url ? t.kind || 'online' : t.linked ? 'linked' : 'copied', ext: (t.fileName || '').split('.').pop().toLowerCase().slice(0, 5), err: el?.error?.code || null });
     if (el) { clearInterval(el._ramp); el._ramp = null; el._fade = 1; applyVol(el); }
     if (token !== loadToken || e?.name === 'AbortError') return;
     if (e?.name === 'NotAllowedError') { if (t.linked) retryAfterPerm = true; if (!(t.linked && (permAsking || needPerm && !permDeclined))) toast(t.linked ? 'Reconnect your music folder to play' : 'Tap play to start'); syncPlayer(); return; }
@@ -978,7 +991,7 @@ function playbackFailed(t) {
   if (++errStreak < 4 && S.qIndex < S.queue.length - 1) { S.qIndex++; loadCurrent(true); } else syncPlayer();
 }
 // State checks (audio.error / audio.ended) ignore stale events left over from the priming clip.
-onAudio('error', () => { const t = current(); if (S.loadedId && t && audio.error) playbackFailed(t); });
+onAudio('error', () => { const t = current(); if (S.loadedId && t && audio.error) { diag('audio', `media error ${audio.error.code}: ${audio.error.message || ''}`, { src: t.url ? t.kind || 'online' : t.linked ? 'linked' : 'copied', ext: (t.fileName || '').split('.').pop().toLowerCase().slice(0, 5) }); playbackFailed(t); } });
 
 function playContext(ids, i = 0, keepRadio = false) {
   if (!keepRadio) S.radio = null;
@@ -1895,6 +1908,26 @@ async function newForYou() {
   const up = S.upnext.filter(has);
   if (up.length) tiles.push({ when: now, html: `<a class="card" href="#/online/podcasts"><div class="art mix-art" style="background:linear-gradient(135deg,#4361ee,#3a0ca3)">${ic('queue')}<b>${up.length}</b></div><div class="card-title" data-tr>Up next</div><div class="card-sub" data-tr>${up.length === 1 ? '1 episode waiting' : `${up.length} episodes waiting`}</div></a>` });
   return tiles.sort((a, b) => b.when - a.when).slice(0, 8).map(t => t.html);
+}
+
+/* ---------------- problem report ---------------- */
+async function problemReport() {
+  let list = []; try { list = JSON.parse(localStorage.getItem(DIAG_KEY) || '[]'); } catch {}
+  let est = {}; try { est = await navigator.storage.estimate(); } catch {}
+  let perm = []; for (const f of S.folders) { try { perm.push(await f.handle.queryPermission({ mode: 'read' })); } catch (e) { perm.push('error:' + e.name); } }
+  const songs = [...S.tracks.values()], cur = current();
+  const lines = [
+    `Seylumi problem report · version ${APP_VERSION} · ${new Date().toISOString()}`,
+    `Device: ${navigator.userAgent}`,
+    `Opened as: ${IN_STORE_APP ? 'Play Store app' : matchMedia('(display-mode: standalone)').matches ? 'installed app' : 'browser'} · language ${LANG} · online ${navigator.onLine}`,
+    `Library: ${songs.length} songs (${songs.filter(t => t.linked).length} linked, ${songs.filter(t => !t.linked).length} copied, ${songs.filter(t => t.tagsPending).length} still being read) · ${S.folders.length} linked folder(s), permission: ${perm.join(', ') || 'none'}`,
+    `Storage: ${est.usage ? (est.usage / 1e6).toFixed(0) : '?'} MB used of ${est.quota ? (est.quota / 1e6).toFixed(0) : '?'} MB · persisted: ${await navigator.storage?.persisted?.().catch(() => '?')}`,
+    `Playing now: ${cur ? `${cur.url ? cur.kind || 'online' : cur.linked ? 'linked' : 'copied'} .${(cur.fileName || '').split('.').pop()} · loaded ${S.loadedId === cur.id} · paused ${audio.paused} · ready ${audio.readyState} · error ${audio.error?.code || 'none'}` : 'nothing'}`,
+    `Sound effects: equalizer ${!!S.fx.eq} · skip silence ${!!S.fx.skipSilence} · crossfade ${S.fx.xfade || 0} · gapless ${!!S.fx.gapless}`,
+    '', `Recent problems (${list.length}):`,
+    ...(list.length ? list.slice(-30).map(x => `${x.at.slice(5, 16).replace('T', ' ')} v${x.v} ${x.kind}: ${x.msg}${x.src ? ` [${x.src} .${x.ext}${x.err ? ' code ' + x.err : ''}]` : ''}`) : ['none recorded']),
+  ];
+  return lines.join('\n');
 }
 
 /* ---------------- storage manager ---------------- */
@@ -3675,7 +3708,7 @@ const VIEWS = {
         <div class="hero-actions"><button class="btn" data-act="whats-new">What’s new</button><button class="btn" data-act="check-update">Check for updates</button>
         ${LINKS.feedback ? `<a class="btn" href="${esc(LINKS.feedback)}" target="_blank" rel="noopener">Send feedback</a>` : ''}
         ${LINKS.donate && !IN_STORE_APP ? `<a class="btn primary" href="${esc(LINKS.donate)}" target="_blank" rel="noopener">${ic('heart')}Support the app</a>` : ''}
-        <button class="btn" data-act="tour-open">${ic('spark')}Welcome tour</button><button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
+        <button class="btn" data-act="tour-open">${ic('spark')}Welcome tour</button><button class="btn" data-act="copy-report">${ic('text')}Copy problem report</button><button class="btn" data-act="share-app">${ic('qr')}Share Seylumi</button><a class="btn" href="privacy.html" target="_blank" rel="noopener">Privacy</a></div>
         ${LINKS.donate && !IN_STORE_APP ? '<p style="margin-top:12px">Seylumi is free, with no adverts or tracking. If you enjoy it, a small donation helps keep it going.</p>' : ''}</div>`,
       `<div class="settings-block"><h2>More</h2><div class="hero-actions"><a class="btn" href="#/stats">${ic('chart')}Your listening stats</a><button class="btn" data-act="car-on">${ic('car')}Car mode</button></div></div>`,
       `<div class="settings-block"><h2>YouTube</h2><p>Pasting YouTube links works with no setup. A free key from Google adds search by name, and a client ID adds your own playlists and liked videos.</p>
@@ -3941,6 +3974,8 @@ const A = {
   'new-smart': newSmart, 'dedupe': removeDuplicates,
   'whats-new': showWhatsNew,
   'share-app': shareApp,
+  'copy-report': async () => { const r = await problemReport(); try { await navigator.clipboard.writeText(r); toast('Problem report copied: paste it to the developer'); } catch { ask({ title: 'Problem report', text: 'Select all of this, copy it and send it to the developer.', input: r, ok: 'Done' }); } },
+  'clear-report': () => { try { localStorage.removeItem(DIAG_KEY); } catch {} toast('Problem log cleared'); },
   'st-played': async () => removeDownloads((await storageInfo()).played, 'Only episodes marked as played are removed.'),
   'st-pods': async () => removeDownloads((await storageInfo()).eps, 'The shows you follow are kept.'),
   'st-free': async () => removeDownloads((await storageInfo()).free, 'Albums you saved are kept.'),

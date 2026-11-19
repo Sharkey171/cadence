@@ -144,7 +144,7 @@ const has = id => S.tracks.has(id) || S.remote.has(id);
 const rowsOf = id => $$('.row').filter(r => r.dataset.id === id);
 // Each theme sets the whole palette; the accent can still be changed on top of it.
 // ---- version and links (bump APP_VERSION together with VERSION in sw.js and ?v= in index.html) ----
-const APP_VERSION = 70;
+const APP_VERSION = 71;
 // Opened as the Google Play app? Google's rules don't allow tips to the developer outside Play billing, so the
 // donate button is left out there. The Play app reports itself through the referrer on its first page load.
 // Hidden testing menu: tap the version number in Settings five times.
@@ -159,6 +159,7 @@ const LINKS = {
   donate: 'https://www.paypal.me/sharkeypaul9',      // PayPal.me link for "Support the app" (button hidden when empty)
 };
 const RELEASES = [
+  { v: 71, date: '2026-11-14', notes: ['Seylumi has its own address: seylumi.ie'] },
   { v: 70, date: '2026-11-19', notes: ['Copy problem report (Settings → About): if something goes wrong, send it to the developer to help fix it. It never includes song names'] },
   { v: 68, date: '2026-11-15', notes: ['Storage manager (Settings → Manage storage): see what is using space, and free it by removing played podcast episodes, downloads or the biggest songs'] },
   { v: 67, date: '2026-11-15', notes: ['Tidy my library (Settings): cleans up messy song names, fills in missing artists, unifies artist spellings and looks up missing albums, years and genres. You approve every fix, and it can be undone', 'A welcome tour for people opening Seylumi for the first time'] },
@@ -2433,7 +2434,7 @@ async function yearImage(d) {
   g.font = F(600, 40); g.globalAlpha = .85;
   const facts = [d.genre ? `${L('Top genre')}: ${d.genre}` : '', d.months[d.topMonth] ? `${L('Busiest month')}: ${new Date(d.y, d.topMonth, 1).toLocaleDateString(LANG, { month: 'long' })}` : ''].filter(Boolean);
   g.fillText(fit(facts.join('  ·  '), 600, 40, W - 160), 80, 1760);
-  g.font = F(500, 34); g.globalAlpha = .6; g.fillText('sharkey171.github.io/cadence', 80, 1850); g.globalAlpha = 1;
+  g.font = F(500, 34); g.globalAlpha = .6; g.fillText('seylumi.ie', 80, 1850); g.globalAlpha = 1;
   return new Promise(r => c.toBlob(r, 'image/png'));
 }
 let yearBlob = null;
@@ -3168,7 +3169,7 @@ function rateMenu(t) {
 }
 
 /* ---------------- share Seylumi (QR code) ---------------- */
-const APP_LINK = 'https://sharkey171.github.io/cadence/welcome.html';
+const APP_LINK = 'https://seylumi.ie/welcome.html';
 async function shareApp() {
   let svg = '';
   try {
